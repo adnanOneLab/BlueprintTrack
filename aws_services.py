@@ -12,7 +12,7 @@ class AWSRekognitionService:
         self.aws_enabled = False
         self.api_calls_count = 0
         self.last_api_call_time = None
-        self.detection_interval = 2.0  # Process every 2 seconds
+        self.detection_interval = 4.0  # Process every 4 seconds
         self.last_detection_time = 0
     
     def enable_aws_rekognition(self, aws_region='ap-south-1'):
@@ -111,19 +111,3 @@ class AWSRekognitionService:
             'last_call_time': self.last_api_call_time,
             'aws_enabled': self.aws_enabled
         }
-
-# Legacy functions for backward compatibility
-def detect_people(self, frame):
-    """Legacy function - use AWSRekognitionService.detect_people instead"""
-    if hasattr(self, 'aws_service'):
-        return self.aws_service.detect_people(frame)
-    return []
-
-def enable_aws_rekognition(self, aws_region='ap-south-1'):
-    """Legacy function - use AWSRekognitionService.enable_aws_rekognition instead"""
-    if not hasattr(self, 'aws_service'):
-        self.aws_service = AWSRekognitionService()
-    success, message = self.aws_service.enable_aws_rekognition(aws_region)
-    if hasattr(self, 'status_message'):
-        self.status_message.emit(message)
-    return success

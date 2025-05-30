@@ -9,6 +9,7 @@ from PyQt6.QtGui import QImage, QPainter, QPen, QColor, QFont
 from datetime import datetime
 
 from person_tracker import PersonTracker
+from aws_services import AWSRekognitionService
 
 class CCTVPreview(QWidget):
     """Widget for displaying and testing CCTV footage"""
@@ -30,14 +31,11 @@ class CCTVPreview(QWidget):
         self.setMinimumSize(640, 480)
         self.setToolTip("CCTV footage preview with store detection")
         
-        # AWS Rekognition setup
-        self.rekognition_client = None
-        self.aws_enabled = False
+        # AWS Rekognition setup - using the service class
+        self.aws_service = AWSRekognitionService()
         self.detected_people = []  # List of current detected people with bounding boxes
         self.frame_count = 0
-        self.last_detection_time = 0  # Track last detection time
-        self.detection_interval = 3.0  # Process every 1 second
-        self.fps = 30  # Default FPS, will be updated when video is loaded
+        self.fps = 30
         
         # Store entry notification setup
         self.last_store_entry = None  # Track the last store entry
@@ -85,7 +83,7 @@ class CCTVPreview(QWidget):
             # Reset to first frame
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
             self.frame_number = 0
-            self.last_detection_time = 0
+            self.aws_service.last_detection_time = 0
             self.api_calls_count = 0
             self.last_api_call_time = None
             return True
@@ -110,15 +108,14 @@ class CCTVPreview(QWidget):
         
         # Calculate time since last detection
         current_time = self.frame_number / self.fps
-        time_since_last_detection = current_time - self.last_detection_time
         
         # Process person detection if AWS is enabled and enough time has passed
-        if self.aws_enabled and time_since_last_detection >= self.detection_interval:
+        if self.aws_service.aws_enabled and self.aws_service.should_detect(current_time):
             try:
-                detected_people = self.detect_people(frame)
-                self.last_detection_time = current_time
-                self.api_calls_count += 1
-                self.last_api_call_time = datetime.now()
+                detected_people = self.aws_service.detect_people(frame)
+                self.aws_service.update_detection_time(current_time)
+                self.aws_service.api_calls_count += 1
+                self.aws_service.last_api_call_time = datetime.now()
                 
                 # Update person tracking
                 self.person_tracker.update(detected_people, self.stores, self.frame_number)
@@ -150,78 +147,6 @@ class CCTVPreview(QWidget):
         
         self.frame_number += 1
         self.update()
-    
-    def detect_people(self, frame):
-        """Detect people in the frame using AWS Rekognition"""
-        if not self.aws_enabled or self.rekognition_client is None:
-            return []
-        
-        try:
-            # Convert frame to JPEG bytes with reduced quality for cost optimization
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # Reduce quality to 85%
-            _, jpeg_bytes = cv2.imencode('.jpg', frame, encode_param)
-            
-            # Call AWS Rekognition with optimized parameters
-            response = self.rekognition_client.detect_labels(
-                Image={'Bytes': jpeg_bytes.tobytes()},
-                MaxLabels=5,  # Reduced from 10 to 5 since we only care about people
-                MinConfidence=75.0  # Increased confidence threshold
-            )
-            
-            # Filter for people and extract bounding boxes
-            people = []
-            for label in response['Labels']:
-                if label['Name'].lower() == 'person':
-                    for instance in label.get('Instances', []):
-                        if instance['Confidence'] >= 75.0:  # Increased confidence threshold
-                            bbox = instance['BoundingBox']
-                            # Convert normalized coordinates to pixel coordinates
-                            x = int(bbox['Left'] * frame.shape[1])
-                            y = int(bbox['Top'] * frame.shape[0])
-                            width = int(bbox['Width'] * frame.shape[1])
-                            height = int(bbox['Height'] * frame.shape[0])
-                            confidence = instance['Confidence']
-                            people.append({
-                                'bbox': (x, y, width, height),
-                                'confidence': confidence
-                            })
-            
-            return people
-            
-        except Exception as e:
-            print(f"Error in person detection: {str(e)}")
-            return []
-    
-    def enable_aws_rekognition(self, aws_region='ap-south-1'):
-        """Enable AWS Rekognition using default credentials"""
-        try:
-            # Use default credentials with specified region
-            self.rekognition_client = boto3.client('rekognition', region_name=aws_region)
-            
-            # Test the connection with minimal API call
-            self.rekognition_client.detect_labels(
-                Image={'Bytes': cv2.imencode('.jpg', np.zeros((100, 100, 3), dtype=np.uint8))[1].tobytes()},
-                MaxLabels=1,
-                MinConfidence=90.0
-            )
-            
-            self.aws_enabled = True
-            self.api_calls_count = 0
-            self.last_api_call_time = None
-            self.status_message.emit("AWS Rekognition enabled successfully")
-            print("AWS Rekognition enabled - API calls will be made every 1 second")
-            return True
-            
-        except ClientError as e:
-            self.aws_enabled = False
-            self.rekognition_client = None
-            self.status_message.emit(f"AWS Rekognition error: {str(e)}")
-            return False
-        except Exception as e:
-            self.aws_enabled = False
-            self.rekognition_client = None
-            self.status_message.emit(f"Error enabling AWS Rekognition: {str(e)}")
-            return False
     
     def update_scaled_frame(self):
         """Scale the current frame to fit the widget while maintaining aspect ratio"""
@@ -268,7 +193,7 @@ class CCTVPreview(QWidget):
         painter.drawImage(self.frame_offset_x, self.frame_offset_y, qimage)
         
         # Draw tracked people (only those in stores)
-        if self.aws_enabled and hasattr(self, 'tracked_people'):
+        if self.aws_service.aws_enabled and hasattr(self, 'tracked_people'):
             for person_id, person in self.tracked_people.items():
                 if person['current_store'] is not None:  # Only draw if person is in a store
                     x, y, w, h = person['bbox']
@@ -643,9 +568,9 @@ class CCTVPreview(QWidget):
                                     print(f"Error drawing store {store_id}: {str(e)}")
                     
                     # Process person detection if AWS is enabled
-                    if self.aws_enabled:
+                    if self.aws_service.aws_enabled:
                         try:
-                            detected_people = self.detect_people(frame)
+                            detected_people = self.aws_service.detect_people(frame)
                             tracked_people = self.person_tracker.update(detected_people, self.stores, self.frame_number)
                             
                             # Draw tracked people (only those in stores)

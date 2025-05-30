@@ -260,8 +260,8 @@ class MainWindow(QMainWindow):
             return
         
         # Enable AWS Rekognition automatically for export
-        if not self.video_preview.aws_enabled:
-            if not self.video_preview.enable_aws_rekognition(aws_region='ap-south-1'):
+        if not self.video_preview.aws_service.aws_enabled:
+            if not self.video_preview.aws_service.enable_aws_rekognition(aws_region='ap-south-1'):
                 QMessageBox.critical(self, "Error", "Failed to enable AWS Rekognition. Export cannot proceed.")
                 return
         
