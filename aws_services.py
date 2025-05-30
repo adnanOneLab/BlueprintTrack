@@ -11,9 +11,9 @@ class AWSRekognitionService:
         self.rekognition_client = None
         self.aws_enabled = False
         self.api_calls_count = 0
-        self.last_api_call_time = None
-        self.detection_interval = 4.0  # Process every 4 seconds
-        self.last_detection_time = 0
+        self.last_api_call_time = 0.0
+        self.detection_interval = 4.0  # AWS detection every 4 seconds
+        self.last_detection_time = 0.0
     
     def enable_aws_rekognition(self, aws_region='ap-south-1'):
         """Enable AWS Rekognition using default credentials"""
@@ -46,54 +46,63 @@ class AWSRekognitionService:
             self.rekognition_client = None
             return False, f"Error enabling AWS Rekognition: {str(e)}"
     
-    def detect_people(self, frame):
-        """Detect people in the frame using AWS Rekognition"""
-        if not self.aws_enabled or self.rekognition_client is None:
+    def detect_people(self, frame, current_time):
+        """Detect people using AWS Rekognition"""
+        if not self.aws_enabled:
             return []
         
-        try:
-            # Convert frame to JPEG bytes with reduced quality for cost optimization
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]  # Reduce quality to 85%
-            _, jpeg_bytes = cv2.imencode('.jpg', frame, encode_param)
-            
-            # Call AWS Rekognition with optimized parameters
-            response = self.rekognition_client.detect_labels(
-                Image={'Bytes': jpeg_bytes.tobytes()},
-                MaxLabels=5,  # Reduced from 10 to 5 since we only care about people
-                MinConfidence=75.0  # Increased confidence threshold
-            )
-            
-            # Update API call tracking
-            self.api_calls_count += 1
-            self.last_api_call_time = datetime.now()
-            
-            # Log API usage periodically
-            if self.api_calls_count % 10 == 0:  # Log every 10 calls
-                print(f"AWS API calls: {self.api_calls_count} (Last call: {self.last_api_call_time})")
-            
-            # Filter for people and extract bounding boxes
-            people = []
-            for label in response['Labels']:
-                if label['Name'].lower() == 'person':
-                    for instance in label.get('Instances', []):
-                        if instance['Confidence'] >= 75.0:  # Increased confidence threshold
-                            bbox = instance['BoundingBox']
-                            # Convert normalized coordinates to pixel coordinates
-                            x = int(bbox['Left'] * frame.shape[1])
-                            y = int(bbox['Top'] * frame.shape[0])
-                            width = int(bbox['Width'] * frame.shape[1])
-                            height = int(bbox['Height'] * frame.shape[0])
-                            confidence = instance['Confidence']
-                            people.append({
-                                'bbox': (x, y, width, height),
-                                'confidence': confidence
-                            })
-            
-            return people
-            
-        except Exception as e:
-            print(f"Error in person detection: {str(e)}")
-            return []
+        # Use AWS for detection if enough time has passed
+        if self.should_detect(current_time):
+            try:
+                # Convert frame to JPEG bytes with reduced quality for cost optimization
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                _, jpeg_bytes = cv2.imencode('.jpg', frame, encode_param)
+                
+                # Call AWS Rekognition with optimized parameters
+                response = self.rekognition_client.detect_labels(
+                    Image={'Bytes': jpeg_bytes.tobytes()},
+                    MaxLabels=5,
+                    MinConfidence=75.0
+                )
+                
+                # Update API call tracking
+                self.api_calls_count += 1
+                self.last_api_call_time = current_time
+                print(f"AWS API call #{self.api_calls_count} at time {current_time:.2f}s")
+                
+                # Filter for people and extract bounding boxes
+                people = []
+                for label in response['Labels']:
+                    if label['Name'].lower() == 'person':
+                        for instance in label.get('Instances', []):
+                            if instance['Confidence'] >= 75.0:
+                                bbox = instance['BoundingBox']
+                                x = int(bbox['Left'] * frame.shape[1])
+                                y = int(bbox['Top'] * frame.shape[0])
+                                width = int(bbox['Width'] * frame.shape[1])
+                                height = int(bbox['Height'] * frame.shape[0])
+                                
+                                margin = 15
+                                x = max(0, x - margin)
+                                y = max(0, y - margin)
+                                width = min(frame.shape[1] - x, width + 2 * margin)
+                                height = min(frame.shape[0] - y, height + 2 * margin)
+                                
+                                people.append({
+                                    'bbox': (x, y, width, height),
+                                    'confidence': instance['Confidence'],
+                                    'detection_type': 'aws',
+                                    'timestamp': current_time
+                                })
+                
+                self.update_detection_time(current_time)
+                return people
+                
+            except Exception as e:
+                print(f"Error in AWS person detection: {str(e)}")
+                return []
+        
+        return []
     
     def should_detect(self, current_time):
         """Check if enough time has passed since last detection"""
@@ -111,3 +120,7 @@ class AWSRekognitionService:
             'last_call_time': self.last_api_call_time,
             'aws_enabled': self.aws_enabled
         }
+    
+    def get_detection_color(self, detection_type, current_time):
+        """Get color for drawing based on detection type"""
+        return (0, 0, 255)  # Red for all detections (AWS only now)

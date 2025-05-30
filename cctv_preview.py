@@ -33,7 +33,7 @@ class CCTVPreview(QWidget):
         
         # AWS Rekognition setup - using the service class
         self.aws_service = AWSRekognitionService()
-        self.detected_people = []  # List of current detected people with bounding boxes
+        self.tracked_people = {}  # Initialize tracked people dictionary
         self.frame_count = 0
         self.fps = 30
         
@@ -58,10 +58,6 @@ class CCTVPreview(QWidget):
         # Add person tracker
         self.person_tracker = PersonTracker()
         self.frame_number = 0
-        
-        # Track API usage for cost management
-        self.api_calls_count = 0
-        self.last_api_call_time = None
     
     def load_video(self, video_path):
         """Load a video file for testing"""
@@ -84,20 +80,19 @@ class CCTVPreview(QWidget):
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
             self.frame_number = 0
             self.aws_service.last_detection_time = 0
-            self.api_calls_count = 0
-            self.last_api_call_time = None
             return True
         return False
     
     def update_frame(self):
         """Update the current frame from video"""
-        if self.video_capture is None or not self.is_exporting:
+        if self.video_capture is None:
             return
         
         ret, frame = self.video_capture.read()
         if not ret:
-            self.is_exporting = False
-            self.status_message.emit("Export complete")
+            if self.is_exporting:
+                self.is_exporting = False
+                self.status_message.emit("Export complete")
             return
         
         # Convert to RGB for display
@@ -106,47 +101,21 @@ class CCTVPreview(QWidget):
         # Scale frame to fit widget while maintaining aspect ratio
         self.update_scaled_frame()
         
-        # Calculate time since last detection
-        current_time = self.frame_number / self.fps
-        
-        # Process person detection if AWS is enabled and enough time has passed
-        if self.aws_service.aws_enabled and self.aws_service.should_detect(current_time):
-            try:
-                detected_people = self.aws_service.detect_people(frame)
-                self.aws_service.update_detection_time(current_time)
-                self.aws_service.api_calls_count += 1
-                self.aws_service.last_api_call_time = datetime.now()
-                
-                # Update person tracking
-                self.person_tracker.update(detected_people, self.stores, self.frame_number)
-                
-                # Log API usage
-                if self.api_calls_count % 10 == 0:  # Log every 10 calls
-                    print(f"AWS API calls: {self.api_calls_count} (Last call: {self.last_api_call_time})")
-            except Exception as e:
-                print(f"Error in person detection: {str(e)}")
-        
-        # Apply perspective transformation if available
-        if self.stores:
-            try:
-                # Transform store polygons to video coordinates
-                for store_id, store in self.stores.items():
-                    if "polygon" in store and len(store["polygon"]) > 2:
-                        perspective_matrix = self.store_perspective_matrices.get(store_id)
-                        if perspective_matrix is None:
-                            continue
-                            
-                        points = np.array(store["polygon"], dtype=np.float32).reshape(-1, 1, 2)
-                        if perspective_matrix.shape != (3, 3):
-                            continue
-                        
-                        transformed = cv2.perspectiveTransform(points, perspective_matrix)
-                        store["video_polygon"] = [(int(p[0][0]), int(p[0][1])) for p in transformed]
-            except Exception as e:
-                print(f"Error in perspective transformation: {str(e)}")
+        # Only process frames and update tracking during export
+        if self.is_exporting:
+            current_time = self.frame_number / self.fps
+            
+            # Process person detection if AWS is enabled
+            if self.aws_service.aws_enabled:
+                try:
+                    detected_people = self.aws_service.detect_people(frame, current_time)
+                    if detected_people:
+                        self.tracked_people = self.person_tracker.update(detected_people, self.stores, self.frame_number)
+                except Exception as e:
+                    print(f"Error in person detection: {str(e)}")
         
         self.frame_number += 1
-        self.update()
+        self.update()  # Ensure the widget is updated to show new frame
     
     def update_scaled_frame(self):
         """Scale the current frame to fit the widget while maintaining aspect ratio"""
@@ -192,36 +161,39 @@ class CCTVPreview(QWidget):
                        self.scaled_frame.strides[0], QImage.Format.Format_RGB888)
         painter.drawImage(self.frame_offset_x, self.frame_offset_y, qimage)
         
-        # Draw tracked people (only those in stores)
-        if self.aws_service.aws_enabled and hasattr(self, 'tracked_people'):
+        # Only draw tracked people during export
+        if self.is_exporting and self.aws_service.aws_enabled and self.tracked_people:
             for person_id, person in self.tracked_people.items():
-                if person['current_store'] is not None:  # Only draw if person is in a store
-                    x, y, w, h = person['bbox']
-                    current_store = person['current_store']
+                x, y, w, h = person['bbox']
+                current_store = person['current_store']
+                
+                # Scale coordinates to widget size
+                scaled_x = int(x * self.scale_factor + self.frame_offset_x)
+                scaled_y = int(y * self.scale_factor + self.frame_offset_y)
+                scaled_w = int(w * self.scale_factor)
+                scaled_h = int(h * self.scale_factor)
+                
+                # Draw bounding box (red for all detections)
+                painter.setPen(QPen(QColor(0, 0, 255), 2))
+                painter.drawRect(scaled_x, scaled_y, scaled_w, scaled_h)
+                
+                # Draw label with store info if in store
+                if current_store is not None:
                     store_name = self.stores[current_store]['name']
-                    
-                    # Scale coordinates to widget size
-                    scaled_x = int(x * self.scale_factor + self.frame_offset_x)
-                    scaled_y = int(y * self.scale_factor + self.frame_offset_y)
-                    scaled_w = int(w * self.scale_factor)
-                    scaled_h = int(h * self.scale_factor)
-                    
-                    # Draw bounding box with thinner line
-                    painter.setPen(QPen(QColor(255, 0, 0), 1))
-                    painter.drawRect(scaled_x, scaled_y, scaled_w, scaled_h)
-                    
-                    # Draw small ID and store info
-                    label = f"{person_id}|{store_name[:5]}"  # Truncate store name to 5 chars
-                    painter.setFont(QFont("Arial", 12))  # Smaller font size
-                    painter.setPen(QColor(255, 255, 255))
-                    # Draw text background
-                    text_rect = painter.fontMetrics().boundingRect(label)
-                    text_rect.moveTop(scaled_y - text_rect.height())
-                    text_rect.moveLeft(scaled_x)
-                    text_rect.adjust(-1, -1, 1, 1)  # Smaller padding
-                    painter.fillRect(text_rect, QColor(0, 0, 0, 180))
-                    # Draw text
-                    painter.drawText(scaled_x, scaled_y - 2, label)  # Reduced vertical offset
+                    label = f"{person_id}|{store_name[:5]}"
+                else:
+                    label = f"{person_id}|OUT"
+                
+                painter.setFont(QFont("Arial", 12))
+                painter.setPen(QColor(255, 255, 255))
+                # Draw text background
+                text_rect = painter.fontMetrics().boundingRect(label)
+                text_rect.moveTop(scaled_y - text_rect.height())
+                text_rect.moveLeft(scaled_x)
+                text_rect.adjust(-1, -1, 1, 1)
+                painter.fillRect(text_rect, QColor(0, 0, 0, 180))
+                # Draw text
+                painter.drawText(scaled_x, scaled_y - 2, label)
         
         # Draw calibration points and lines if in calibration mode
         if self.calibration_mode:
@@ -456,6 +428,40 @@ class CCTVPreview(QWidget):
             return False
         
         try:
+            # Verify AWS and stores setup
+            if not self.aws_service.aws_enabled:
+                print("Warning: AWS Rekognition is not enabled")
+                return False
+            
+            if not self.stores:
+                print("Warning: No stores defined")
+                return False
+            
+            # Verify store polygons and calculate video polygons
+            for store_id, store in self.stores.items():
+                if "polygon" not in store or len(store["polygon"]) < 3:
+                    print(f"Warning: Store {store_id} has invalid polygon")
+                    return False
+                
+                # Calculate video polygon using perspective transformation
+                perspective_matrix = self.store_perspective_matrices.get(store_id)
+                if perspective_matrix is None:
+                    print(f"Warning: Store {store_id} has no perspective matrix")
+                    return False
+                
+                try:
+                    points = np.array(store["polygon"], dtype=np.float32).reshape(-1, 1, 2)
+                    if perspective_matrix.shape != (3, 3):
+                        print(f"Warning: Invalid perspective matrix shape for store {store_id}")
+                        return False
+                    
+                    transformed = cv2.perspectiveTransform(points, perspective_matrix)
+                    store["video_polygon"] = [(int(p[0][0]), int(p[0][1])) for p in transformed]
+                    print(f"Calculated video polygon for store {store_id}: {store['video_polygon']}")
+                except Exception as e:
+                    print(f"Error calculating video polygon for store {store_id}: {str(e)}")
+                    return False
+            
             # Get video properties
             frame_width = int(self.video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(self.video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -463,7 +469,9 @@ class CCTVPreview(QWidget):
             total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
             duration = total_frames / fps  # Duration in seconds
             
-            print(f"Input video properties:")
+            print(f"Starting video export:")
+            print(f"- AWS Enabled: {self.aws_service.aws_enabled}")
+            print(f"- Number of stores: {len(self.stores)}")
             print(f"- Resolution: {frame_width}x{frame_height}")
             print(f"- FPS: {fps}")
             print(f"- Total frames: {total_frames}")
@@ -472,8 +480,9 @@ class CCTVPreview(QWidget):
             # Store current position to restore later
             current_position = self.video_capture.get(cv2.CAP_PROP_POS_FRAMES)
             
-            # Create video writer with H.264 codec
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')  # Use H.264 codec
+            # Create video writer with MJPG codec (more widely available)
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')  # Use MJPG codec instead of H.264
+            output_path = output_path.replace('.mp4', '.avi')  # Change extension to .avi for MJPG
             self.video_writer = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
             
             if not self.video_writer.isOpened():
@@ -494,6 +503,7 @@ class CCTVPreview(QWidget):
             # Process each frame
             frame_count = 0
             processed_frames = 0
+            detection_count = 0
             
             while frame_count < total_frames:
                 # Get current frame number
@@ -508,115 +518,86 @@ class CCTVPreview(QWidget):
                     break
                 
                 try:
-                    # Create a copy for drawing
                     frame_draw = frame.copy()
                     
-                    # Apply perspective transformation for stores
-                    if self.stores:
-                        try:
-                            # Transform store polygons to video coordinates
-                            for store_id, store in self.stores.items():
-                                if "polygon" in store and len(store["polygon"]) > 2:
-                                    perspective_matrix = self.store_perspective_matrices.get(store_id)
-                                    if perspective_matrix is None:
-                                        continue
-                                    
-                                    points = np.array(store["polygon"], dtype=np.float32).reshape(-1, 1, 2)
-                                    if perspective_matrix.shape != (3, 3):
-                                        continue
-                                    
-                                    transformed = cv2.perspectiveTransform(points, perspective_matrix)
-                                    store["video_polygon"] = [(int(p[0][0]), int(p[0][1])) for p in transformed]
-                        except Exception as e:
-                            print(f"Error in perspective transformation: {str(e)}")
-                    
                     # Draw store polygons
-                    if self.stores:
-                        for store_id, store in self.stores.items():
-                            if "video_polygon" in store and len(store["video_polygon"]) > 2:
-                                try:
-                                    points = np.array(store["video_polygon"], np.int32).reshape((-1, 1, 2))
+                    for store_id, store in self.stores.items():
+                        if "video_polygon" in store and len(store["video_polygon"]) > 2:
+                            try:
+                                points = np.array(store["video_polygon"], np.int32).reshape((-1, 1, 2))
+                                
+                                # Draw filled semi-transparent polygon
+                                overlay = frame_draw.copy()
+                                cv2.fillPoly(overlay, [points], (0, 255, 0))
+                                cv2.addWeighted(overlay, 0.3, frame_draw, 0.7, 0, frame_draw)
+                                
+                                # Draw polygon outline
+                                cv2.polylines(frame_draw, [points], True, (0, 255, 0), 2)
+                                
+                                # Draw store name
+                                if "name" in store:
+                                    centroid_x = int(np.mean([p[0] for p in store["video_polygon"]]))
+                                    centroid_y = int(np.mean([p[1] for p in store["video_polygon"]]))
                                     
-                                    # Draw filled semi-transparent polygon
-                                    overlay = frame_draw.copy()
-                                    cv2.fillPoly(overlay, [points], (0, 255, 0))
-                                    cv2.addWeighted(overlay, 0.3, frame_draw, 0.7, 0, frame_draw)
-                                    
-                                    # Draw polygon outline
-                                    cv2.polylines(frame_draw, [points], True, (0, 255, 0), 1)
-                                    
-                                    # Draw store name
-                                    if "name" in store:
-                                        centroid_x = int(np.mean([p[0] for p in store["video_polygon"]]))
-                                        centroid_y = int(np.mean([p[1] for p in store["video_polygon"]]))
-                                        
-                                        text = store["name"]
-                                        font = cv2.FONT_HERSHEY_SIMPLEX
-                                        font_scale = 1.3
-                                        thickness = 2
-                                        (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
-                                        
-                                        cv2.rectangle(frame_draw, 
-                                                    (centroid_x - text_width//2 - 2, centroid_y - text_height//2 - 2),
-                                                    (centroid_x + text_width//2 + 2, centroid_y + text_height//2 + 2),
-                                                    (0, 0, 0), -1)
-                                        
-                                        cv2.putText(frame_draw, text,
-                                                  (centroid_x - text_width//2, centroid_y + text_height//2),
-                                                  font, font_scale, (255, 255, 255), thickness)
-                                except Exception as e:
-                                    print(f"Error drawing store {store_id}: {str(e)}")
-                    
-                    # Process person detection if AWS is enabled
-                    if self.aws_service.aws_enabled:
-                        try:
-                            detected_people = self.aws_service.detect_people(frame)
-                            tracked_people = self.person_tracker.update(detected_people, self.stores, self.frame_number)
-                            
-                            # Draw tracked people (only those in stores)
-                            for person_id, person in tracked_people.items():
-                                if person['current_store'] is not None:
-                                    x, y, w, h = person['bbox']
-                                    current_store = person['current_store']
-                                    store_name = self.stores[current_store]['name']
-                                    
-                                    cv2.rectangle(frame_draw, (x, y), (x + w, y + h), (0, 0, 255), 1)
-                                    
-                                    label = f"{person_id}|{store_name[:5]}"
+                                    text = store["name"]
                                     font = cv2.FONT_HERSHEY_SIMPLEX
-                                    font_scale = 0.8
-                                    thickness = 1
-                                    (text_width, text_height), _ = cv2.getTextSize(label, font, font_scale, thickness)
+                                    font_scale = 1.3
+                                    thickness = 2
+                                    (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
                                     
                                     cv2.rectangle(frame_draw, 
-                                                (x, y - text_height - 2),
-                                                (x + text_width, y),
+                                                (centroid_x - text_width//2 - 2, centroid_y - text_height//2 - 2),
+                                                (centroid_x + text_width//2 + 2, centroid_y + text_height//2 + 2),
                                                 (0, 0, 0), -1)
                                     
-                                    cv2.putText(frame_draw, label,
-                                              (x, y - 2),
+                                    cv2.putText(frame_draw, text,
+                                              (centroid_x - text_width//2, centroid_y + text_height//2),
                                               font, font_scale, (255, 255, 255), thickness)
-                            
-                            # Draw store entry notification
-                            if self.last_store_entry and self.store_entry_display_time > 0:
-                                text = f"Person {self.last_store_entry['person_id']} entered {self.last_store_entry['store_name']}"
-                                font = cv2.FONT_HERSHEY_SIMPLEX
-                                font_scale = 0.8
-                                thickness = 1
-                                (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
-                                
-                                cv2.rectangle(frame_draw,
-                                            (frame_draw.shape[1]//2 - text_width//2 - 5, 10),
-                                            (frame_draw.shape[1]//2 + text_width//2 + 5, 10 + text_height + 5),
-                                            (0, 0, 0), -1)
-                                
-                                cv2.putText(frame_draw, text,
-                                          (frame_draw.shape[1]//2 - text_width//2, 10 + text_height),
-                                          font, font_scale, (255, 255, 255), thickness)
-                                
-                                self.store_entry_display_time -= 1
+                            except Exception as e:
+                                print(f"Error drawing store {store_id}: {str(e)}")
+                    
+                    # Process person detection
+                    current_time = frame_count / fps
+                    if self.aws_service.aws_enabled:
+                        try:
+                            print(f"Processing frame {frame_count} at time {current_time:.2f}s")
+                            detected_people = self.aws_service.detect_people(frame, current_time)
+                            if detected_people:
+                                self.tracked_people = self.person_tracker.update(detected_people, self.stores, frame_count)
                         except Exception as e:
-                            print(f"Error in person detection/tracking: {str(e)}")
+                            print(f"Error in person detection at frame {frame_count}: {str(e)}")
+                    
+                    # Draw tracked people
+                    if self.tracked_people:
+                        for person_id, person in self.tracked_people.items():
+                            x, y, w, h = person['bbox']
+                            current_store = person['current_store']
+                            
+                            # Draw bounding box (red for all detections)
+                            cv2.rectangle(frame_draw, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                            
+                            # Draw label with store info
+                            if current_store is not None:
+                                store_name = self.stores[current_store]['name']
+                                label = f"{person_id}|{store_name[:5]}"
+                            else:
+                                label = f"{person_id}|OUT"
+                            
+                            font = cv2.FONT_HERSHEY_SIMPLEX
+                            font_scale = 0.8
+                            thickness = 2
+                            (text_width, text_height), _ = cv2.getTextSize(label, font, font_scale, thickness)
+                            
+                            # Draw text background
+                            cv2.rectangle(frame_draw, 
+                                        (x, y - text_height - 2),
+                                        (x + text_width, y),
+                                        (0, 0, 0), -1)
+                            
+                            # Draw text
+                            cv2.putText(frame_draw, label,
+                                      (x, y - 2),
+                                      font, font_scale, (255, 255, 255), thickness)
                     
                     # Write frame
                     self.video_writer.write(frame_draw)
@@ -627,48 +608,20 @@ class CCTVPreview(QWidget):
                     progress = (frame_count / total_frames) * 100
                     self.status_message.emit(f"Exporting video: {progress:.1f}%")
                     
-                    self.frame_number += 1
-                    
                 except Exception as e:
                     print(f"Error processing frame {frame_count}: {str(e)}")
                     continue
+            
+            print(f"Export completed:")
+            print(f"- Total frames processed: {processed_frames}")
+            print(f"- Total detections made: {detection_count}")
+            print(f"- AWS API calls: {self.aws_service.api_calls_count}")
             
             # Clean up
             self.video_writer.release()
             self.video_writer = None
             self.is_exporting = False
             self.export_progress = 0
-            
-            # Verify output video
-            output_cap = cv2.VideoCapture(output_path)
-            if output_cap.isOpened():
-                output_frames = int(output_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                output_fps = output_cap.get(cv2.CAP_PROP_FPS)
-                output_duration = output_frames / output_fps
-                output_cap.release()
-                
-                print(f"Output video properties:")
-                print(f"- Resolution: {frame_width}x{frame_height}")
-                print(f"- FPS: {output_fps}")
-                print(f"- Total frames: {output_frames}")
-                print(f"- Duration: {output_duration:.2f} seconds")
-                print(f"- Processed frames: {processed_frames}")
-                
-                # Verify frame count
-                if output_frames != total_frames:
-                    print(f"Error: Frame count mismatch - Input: {total_frames}, Output: {output_frames}, Processed: {processed_frames}")
-                    # Delete the incorrect output file
-                    os.remove(output_path)
-                    raise Exception(f"Frame count mismatch in output video (Input: {total_frames}, Output: {output_frames}, Processed: {processed_frames})")
-                
-                if abs(output_duration - duration) > 0.1:
-                    print(f"Error: Duration mismatch - Input: {duration:.2f}s, Output: {output_duration:.2f}s")
-                    # Delete the incorrect output file
-                    os.remove(output_path)
-                    raise Exception(f"Duration mismatch in output video (Input: {duration:.2f}s, Output: {output_duration:.2f}s)")
-            else:
-                print("Warning: Could not verify output video properties")
-                raise Exception("Could not verify output video")
             
             # Restore video capture position
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
