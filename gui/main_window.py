@@ -267,8 +267,9 @@ class MainWindow(QMainWindow):
                 return
         
         # Get output file path
+        default_folder = os.path.join(os.getcwd(), "exports/output/")
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Video", "", "Video Files (*.mp4)"
+            self, "Export Video", default_folder, "Video Files (*.mp4)"
         )
         
         if file_path:
@@ -331,8 +332,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "No movement data available. Please export a video first to generate movement data.")
             return
         
+        default_folder = os.path.join(os.getcwd(), "exports/logs/")
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Movement Log", "", "CSV Files (*.csv)"
+            self, "Export Movement Log", default_folder, "CSV Files (*.csv)"
         )
         
         if file_path:
@@ -357,8 +359,9 @@ class MainWindow(QMainWindow):
 
     def load_blueprint(self):
         """Load a blueprint image"""
+        default_folder = os.path.join(os.getcwd(), "assets/blueprints/")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Load Blueprint", "", "Image Files (*.png *.jpg *.jpeg)"
+            self, "Load Blueprint", default_folder, "Image Files (*.png *.jpg *.jpeg)"
         )
         if file_path:
             if self.blueprint_view.load_image(file_path):
@@ -368,8 +371,9 @@ class MainWindow(QMainWindow):
 
     def load_video(self):
         """Load CCTV footage for testing"""
+        default_folder = os.path.join(os.getcwd(), "assets/input_videos/")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Load CCTV Footage", "", "Video Files (*.mp4 *.avi *.mov)"
+            self, "Load CCTV Footage", default_folder, "Video Files (*.mp4 *.avi *.mov)"
         )
         if file_path:
             if self.video_preview.load_video(file_path):
@@ -379,8 +383,9 @@ class MainWindow(QMainWindow):
 
     def load_mapping_data(self):
         """Load previously exported mapping data"""
+        default_folder = os.path.join(os.getcwd(), "assets/mappings/")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Load Mapping Data", "", "JSON Files (*.json)"
+            self, "Load Mapping Data", default_folder, "JSON Files (*.json)"
         )
         if not file_path:
             return
