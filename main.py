@@ -7,7 +7,7 @@ This file imports and runs the main window.
 
 import sys
 
-from main_window import MainWindow
+from gui.main_window import MainWindow
 from PyQt6.QtWidgets import QApplication
 
 
