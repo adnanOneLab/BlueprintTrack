@@ -4,21 +4,23 @@ from shapely.geometry import Polygon
 class PersonTracker:
     def __init__(self):
         self.next_id = 1
-        self.tracked_people = {}  # id -> {bbox, last_seen, current_store, history, last_store, face_detections, body_images}
+        self.tracked_people = {}  # id -> {bbox, last_seen, current_store, history, confidence, timestamp}
         self.store_entry_threshold = 0.5
-        self.max_frames_missing = 15  # Reduced from 30 to remove ghost boxes faster
-        self.iou_threshold = 0.3  # Increased from 0.2 for better matching
-        self.min_confidence = 0.60  # Match AWS confidence threshold
-        self.max_movement = 200  # Reduced from 300 to prevent large jumps
-        self.velocity_smoothing = 0.8  # Reduced from 0.95 to make tracking more responsive
+        self.max_frames_missing = 10  # Reduced for faster cleanup
+        self.iou_threshold = 0.25  # Slightly reduced for better matching
+        self.min_confidence = 0.60
+        self.max_movement = 150  # Reduced to prevent large jumps
+        self.velocity_smoothing = 0.7
         self.last_positions = {}  # Store last positions for velocity calculation
-        self.notified_entries = set()  # Track which store entries we've already notified
-        self.notified_exits = set()  # Track which store exits we've already notified
         self.track_history = {}  # Store recent positions for each track
-        self.max_history = 5  # Reduced from 10 to prevent ghost trails
-        self.active_tracks = set()  # Keep track of currently active track IDs
+        self.max_history = 3  # Reduced for less memory usage
         self.face_detection_history = {}  # Store recent face detections for each track
-        self.max_face_history = 3  # Reduced from 5 to keep only recent face detections
+        self.max_face_history = 2
+        self.last_store = {}  # Track last store for each person
+        self.frame_counter = 0  # Add frame counter for better tracking
+        
+        # Add debugging flags
+        self.debug_mode = True
     
     def calculate_iou(self, bbox1, bbox2):
         """Calculate Intersection over Union between two bounding boxes"""
@@ -77,243 +79,219 @@ class PersonTracker:
             
             return False
         except Exception as e:
-            print(f"Error checking store entry: {str(e)}")
+            if self.debug_mode:
+                print(f"Error checking store entry: {str(e)}")
             return False
     
+    def cleanup_old_tracks(self, current_frame):
+        """Clean up old tracks that haven't been seen for a while"""
+        tracks_to_remove = []
+        
+        for person_id, person in self.tracked_people.items():
+            frames_missing = current_frame - person['last_seen']
+            if frames_missing >= self.max_frames_missing:
+                tracks_to_remove.append(person_id)
+                if self.debug_mode:
+                    print(f"Removing track {person_id} - missing for {frames_missing} frames")
+        
+        # Remove old tracks from all dictionaries
+        for person_id in tracks_to_remove:
+            self.tracked_people.pop(person_id, None)
+            self.last_positions.pop(person_id, None)
+            self.track_history.pop(person_id, None)
+            self.face_detection_history.pop(person_id, None)
+            self.last_store.pop(person_id, None)
+        
+        if self.debug_mode and tracks_to_remove:
+            print(f"Cleaned up {len(tracks_to_remove)} old tracks. Active tracks: {len(self.tracked_people)}")
+    
+    def find_best_match(self, detection, unmatched_tracks):
+        """Find the best matching track for a detection"""
+        best_score = 0
+        best_track_id = None
+        
+        for person_id in unmatched_tracks:
+            person = self.tracked_people[person_id]
+            
+            # Get current or predicted bbox
+            current_bbox = person['bbox']
+            if person_id in self.last_positions:
+                velocity = self.last_positions[person_id].get('velocity', (0, 0))
+                predicted_bbox = self.predict_next_position(current_bbox, velocity)
+            else:
+                predicted_bbox = current_bbox
+            
+            # Calculate IOU with both current and predicted positions
+            current_iou = self.calculate_iou(current_bbox, detection['bbox'])
+            predicted_iou = self.calculate_iou(predicted_bbox, detection['bbox'])
+            iou = max(current_iou, predicted_iou)
+            
+            # Calculate movement score
+            movement = self.calculate_movement(current_bbox, detection['bbox'])
+            movement_score = max(0, 1 - (movement / self.max_movement))
+            
+            # Calculate size similarity score
+            old_area = current_bbox[2] * current_bbox[3]
+            new_area = detection['bbox'][2] * detection['bbox'][3]
+            size_ratio = min(old_area, new_area) / max(old_area, new_area) if max(old_area, new_area) > 0 else 0
+            
+            # Combined score with balanced weights
+            score = (0.5 * iou) + (0.3 * movement_score) + (0.2 * size_ratio)
+            
+            if score > best_score and iou >= 0.1:  # Minimum IOU threshold
+                best_score = score
+                best_track_id = person_id
+        
+        return best_track_id, best_score
+    
+    def update_store_status(self, person_id, person, stores, current_time, frame_number):
+        """Update store status for a person"""
+        current_store = None
+        
+        for store_id, store in stores.items():
+            if "video_polygon" in store and len(store["video_polygon"]) > 2:
+                if self.is_person_in_store(person['bbox'], store["video_polygon"]):
+                    current_store = store_id
+                    # Check if this is a new store entry
+                    if current_store != self.last_store.get(person_id):
+                        entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                        if self.debug_mode:
+                            print(f"Person {person_id} entered {store.get('name', 'Unknown')} at {entry_time}")
+                        
+                        # Ensure history exists
+                        if 'history' not in person:
+                            person['history'] = []
+                        
+                        # Add to history
+                        person['history'].append({
+                            'store_name': store.get('name', 'Unknown'),
+                            'entry_time': entry_time,
+                            'frame': frame_number
+                        })
+                    break
+        
+        # Update store tracking
+        person['current_store'] = current_store
+        self.last_store[person_id] = current_store
+    
     def update(self, detected_people, stores, frame_number, face_detections=None):
-        """Update tracked people with new detections and face detections"""
+        """Update tracked people with new detections"""
+        self.frame_counter = frame_number
         current_time = datetime.now()
         
         # Filter detections by confidence
-        detected_people = [p for p in detected_people if p['confidence'] >= self.min_confidence]
-        if face_detections:
-            face_detections = [f for f in face_detections if f['confidence'] >= self.min_confidence]
+        detected_people = [p for p in detected_people if p.get('confidence', 0) >= self.min_confidence]
         
-        # Update track history for existing tracks
+        if self.debug_mode:
+            print(f"\nFrame {frame_number}: Processing {len(detected_people)} detections, {len(self.tracked_people)} active tracks")
+        
+        # Clean up old tracks first
+        self.cleanup_old_tracks(frame_number)
+        
+        # Initialize tracking data for existing tracks
         for person_id in self.tracked_people:
+            person = self.tracked_people[person_id]
+            
+            # Initialize missing fields
+            if 'history' not in person:
+                person['history'] = []
             if person_id not in self.track_history:
                 self.track_history[person_id] = []
-            self.track_history[person_id].append(self.tracked_people[person_id]['bbox'])
-            if len(self.track_history[person_id]) > self.max_history:
-                self.track_history[person_id].pop(0)
-            
-            # Initialize face detection history if not exists
             if person_id not in self.face_detection_history:
                 self.face_detection_history[person_id] = []
+            if person_id not in self.last_store:
+                self.last_store[person_id] = None
         
-        # Update existing tracks with predictions
-        for person_id in list(self.tracked_people.keys()):
-            person = self.tracked_people[person_id]
-            if person_id in self.last_positions:
-                velocity = self.last_positions[person_id].get('velocity', (0, 0))
-                predicted_bbox = self.predict_next_position(person['bbox'], velocity)
-                person['predicted_bbox'] = predicted_bbox
-            person['last_seen'] = frame_number
-            self.active_tracks.add(person_id)
-        
-        # Match new detections to existing tracks
+        # Match detections to existing tracks
         matched_detections = set()
         unmatched_tracks = set(self.tracked_people.keys())
         
-        # First pass: Try to match with high confidence using predicted positions
-        for person_id in list(unmatched_tracks):
-            person = self.tracked_people[person_id]
-            best_score = 0
-            best_detection = None
-            best_face = None
-            
-            # Try to match with face detections first if available
-            if face_detections:
-                for face in face_detections:
-                    face_bbox = face['bbox']
-                    bbox_to_compare = person.get('predicted_bbox', person['bbox'])
-                    
-                    # Calculate IOU between face and predicted person bbox
-                    iou = self.calculate_iou(bbox_to_compare, face_bbox)
-                    
-                    # Calculate movement score
-                    movement = self.calculate_movement(bbox_to_compare, face_bbox)
-                    movement_score = 1 - (movement / self.max_movement) if movement < self.max_movement else 0
-                    
-                    # Combined score with adjusted weights
-                    score = (0.6 * iou) + (0.4 * movement_score)  # Increased weight for IOU
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_detection = None  # Clear person detection
-                        best_face = face
-            
-            # If no good face match, try person detection
-            if best_score < self.iou_threshold:
-                for i, detection in enumerate(detected_people):
-                    if i in matched_detections:
-                        continue
-                    
-                    # Try matching with predicted position first
-                    bbox_to_compare = person.get('predicted_bbox', person['bbox'])
-                    iou = self.calculate_iou(bbox_to_compare, detection['bbox'])
-                    
-                    # Skip if IOU is too low
-                    if iou < 0.15:  # Increased from 0.1 for better matching
-                        continue
-                    
-                    # Calculate movement score
-                    movement = self.calculate_movement(bbox_to_compare, detection['bbox'])
-                    movement_score = 1 - (movement / self.max_movement) if movement < self.max_movement else 0
-                    
-                    # Calculate history score
-                    history_score = 0
-                    if person_id in self.track_history and len(self.track_history[person_id]) > 0:
-                        history_ious = [self.calculate_iou(hist_bbox, detection['bbox']) 
-                                      for hist_bbox in self.track_history[person_id]]
-                        history_score = max(history_ious) if history_ious else 0
-                    
-                    # Combined score with adjusted weights
-                    score = (0.5 * iou) + (0.3 * movement_score) + (0.2 * history_score)
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_detection = (i, detection)
-                        best_face = None  # Clear face detection
-            
-            if best_score > self.iou_threshold:
-                if best_face:
-                    # Update with face detection
-                    matched_detections.add(-1)  # Use -1 to indicate face detection was matched
-                    unmatched_tracks.remove(person_id)
-                    
-                    # Update person data
-                    old_bbox = person['bbox']
-                    new_bbox = best_face['body_bbox']  # Use body bbox from face detection
-                    
-                    # Calculate and smooth velocity
-                    velocity = self.calculate_velocity(old_bbox, new_bbox)
-                    if person_id in self.last_positions:
-                        old_velocity = self.last_positions[person_id].get('velocity', (0, 0))
-                        velocity = (
-                            self.velocity_smoothing * old_velocity[0] + (1 - self.velocity_smoothing) * velocity[0],
-                            self.velocity_smoothing * old_velocity[1] + (1 - self.velocity_smoothing) * velocity[1]
-                        )
-                    
-                    person['bbox'] = new_bbox
-                    person['confidence'] = best_face['confidence']
-                    person['timestamp'] = best_face['timestamp']
-                    
-                    # Store face detection
-                    if 'face_detections' not in person:
-                        person['face_detections'] = []
-                    person['face_detections'].append({
-                        'bbox': best_face['bbox'],
-                        'confidence': best_face['confidence'],
-                        'timestamp': best_face['timestamp'],
-                        'image_path': best_face.get('image_path')
-                    })
-                    if len(person['face_detections']) > self.max_face_history:
-                        person['face_detections'].pop(0)
-                    
-                    # Update face detection history
-                    self.face_detection_history[person_id].append(best_face)
-                    if len(self.face_detection_history[person_id]) > self.max_face_history:
-                        self.face_detection_history[person_id].pop(0)
-                    
-                elif best_detection:
-                    # Update with person detection
-                    idx, detection = best_detection
-                    matched_detections.add(idx)
-                    unmatched_tracks.remove(person_id)
-                    
-                    # Update person data
-                    old_bbox = person['bbox']
-                    new_bbox = detection['bbox']
-                    
-                    # Calculate and smooth velocity
-                    velocity = self.calculate_velocity(old_bbox, new_bbox)
-                    if person_id in self.last_positions:
-                        old_velocity = self.last_positions[person_id].get('velocity', (0, 0))
-                        velocity = (
-                            self.velocity_smoothing * old_velocity[0] + (1 - self.velocity_smoothing) * velocity[0],
-                            self.velocity_smoothing * old_velocity[1] + (1 - self.velocity_smoothing) * velocity[1]
-                        )
-                    
-                    person['bbox'] = new_bbox
-                    person['confidence'] = detection['confidence']
-                    person['timestamp'] = detection.get('timestamp', current_time.timestamp())
+        # Process each detection and find best match
+        for i, detection in enumerate(detected_people):
+            if not unmatched_tracks:
+                break
                 
-                # Update velocity and position history (common for both face and person detection)
-                self.last_positions[person_id] = {
+            best_track_id, best_score = self.find_best_match(detection, unmatched_tracks)
+            
+            if best_track_id is not None and best_score > self.iou_threshold:
+                # Update existing track
+                person = self.tracked_people[best_track_id]
+                old_bbox = person['bbox']
+                new_bbox = detection['bbox']
+                
+                # Calculate and smooth velocity
+                velocity = self.calculate_velocity(old_bbox, new_bbox)
+                if best_track_id in self.last_positions:
+                    old_velocity = self.last_positions[best_track_id].get('velocity', (0, 0))
+                    velocity = (
+                        self.velocity_smoothing * old_velocity[0] + (1 - self.velocity_smoothing) * velocity[0],
+                        self.velocity_smoothing * old_velocity[1] + (1 - self.velocity_smoothing) * velocity[1]
+                    )
+                
+                # Update person data
+                person['bbox'] = new_bbox
+                person['confidence'] = detection['confidence']
+                person['last_seen'] = frame_number
+                person['timestamp'] = detection.get('timestamp', current_time.timestamp())
+                
+                # Update velocity and position history
+                self.last_positions[best_track_id] = {
                     'velocity': velocity,
                     'last_update': frame_number
                 }
                 
                 # Update track history
-                if person_id not in self.track_history:
-                    self.track_history[person_id] = []
-                self.track_history[person_id].append(person['bbox'])
-                if len(self.track_history[person_id]) > self.max_history:
-                    self.track_history[person_id].pop(0)
+                self.track_history[best_track_id].append(new_bbox)
+                if len(self.track_history[best_track_id]) > self.max_history:
+                    self.track_history[best_track_id].pop(0)
+                
+                # Update store status
+                self.update_store_status(best_track_id, person, stores, current_time, frame_number)
+                
+                # Mark as matched
+                matched_detections.add(i)
+                unmatched_tracks.remove(best_track_id)
+                
+                if self.debug_mode:
+                    print(f"  Matched detection {i} to track {best_track_id} (score: {best_score:.3f})")
         
-        # Clean up old tracks that haven't been seen for a while
-        current_frame = frame_number
-        self.tracked_people = {
-            pid: person for pid, person in self.tracked_people.items()
-            if current_frame - person['last_seen'] < self.max_frames_missing
-        }
-        self.last_positions = {
-            pid: pos for pid, pos in self.last_positions.items()
-            if current_frame - pos['last_update'] < self.max_frames_missing
-        }
-        self.track_history = {
-            pid: history for pid, history in self.track_history.items()
-            if pid in self.tracked_people
-        }
-        self.face_detection_history = {
-            pid: history for pid, history in self.face_detection_history.items()
-            if pid in self.tracked_people
-        }
-        
-        # Add new tracks for unmatched detections
+        # Create new tracks for unmatched detections
         for i, detection in enumerate(detected_people):
             if i not in matched_detections:
-                # Find the next available ID that hasn't been used recently
-                while self.next_id in self.active_tracks:
-                    self.next_id += 1
-                
                 person_id = self.next_id
                 self.next_id += 1
-                self.active_tracks.add(person_id)
                 
-                # Initialize with zero velocity
-                self.last_positions[person_id] = {
-                    'velocity': (0, 0),
-                    'last_update': frame_number
-                }
-                
-                # Initialize track history
-                self.track_history[person_id] = [detection['bbox']]
-                
-                # Check initial store
-                current_store = None
-                for store_id, store in stores.items():
-                    if "video_polygon" in store and len(store["video_polygon"]) > 2:
-                        if self.is_person_in_store(detection['bbox'], store["video_polygon"]):
-                            current_store = store_id
-                            entry_key = f"{person_id}_{store_id}"
-                            if entry_key not in self.notified_entries:
-                                entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
-                                print(f"Person {person_id} entered {store.get('name', 'Unknown')} at {entry_time}")
-                                self.notified_entries.add(entry_key)
-                            break
-                
+                # Initialize new track
                 self.tracked_people[person_id] = {
                     'bbox': detection['bbox'],
                     'confidence': detection['confidence'],
                     'last_seen': frame_number,
-                    'current_store': current_store,
+                    'current_store': None,
                     'history': [],
                     'timestamp': detection.get('timestamp', current_time.timestamp())
                 }
+                
+                # Initialize tracking data
+                self.last_positions[person_id] = {
+                    'velocity': (0, 0),
+                    'last_update': frame_number
+                }
+                self.track_history[person_id] = [detection['bbox']]
+                self.face_detection_history[person_id] = []
+                self.last_store[person_id] = None
+                
+                # Update store status for new track
+                self.update_store_status(person_id, self.tracked_people[person_id], stores, current_time, frame_number)
+                
+                if self.debug_mode:
+                    print(f"  Created new track {person_id} for unmatched detection {i}")
         
-        # Clean up active tracks set
-        self.active_tracks = set(self.tracked_people.keys())
+        # Update last_seen for all remaining unmatched tracks (they weren't updated this frame)
+        for person_id in unmatched_tracks:
+            # Don't update last_seen - let them age out naturally
+            pass
+        
+        if self.debug_mode:
+            print(f"Frame {frame_number} complete: {len(self.tracked_people)} active tracks")
         
         return self.tracked_people

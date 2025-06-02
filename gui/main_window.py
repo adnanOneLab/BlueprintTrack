@@ -341,19 +341,57 @@ class MainWindow(QMainWindow):
             try:
                 with open(file_path, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(["Person ID", "Store Name", "Entry Time", "Frame Number"])
+                    writer.writerow(["Person ID", "Store Name", "Entry Time", "Frame Number", "Duration (frames)"])
                     
+                    # Process each person's history
                     for person_id, person in self.video_preview.person_tracker.tracked_people.items():
-                        for entry in person['history']:
-                            writer.writerow([
-                                person_id,
-                                entry['store_name'],
-                                entry['entry_time'],
-                                entry['frame']
-                            ])
+                        if not person['history']:
+                            continue
+                            
+                        # Sort history by frame number to ensure chronological order
+                        sorted_history = sorted(person['history'], key=lambda x: x['frame'])
+                        
+                        # Track unique store visits
+                        current_store = None
+                        entry_frame = None
+                        entry_time = None
+                        
+                        for i, entry in enumerate(sorted_history):
+                            # If this is a new store or the first entry
+                            if entry['store_name'] != current_store:
+                                # If we were tracking a previous store, write its entry
+                                if current_store is not None and entry_frame is not None:
+                                    duration = entry['frame'] - entry_frame
+                                    writer.writerow([
+                                        person_id,
+                                        current_store,
+                                        entry_time,
+                                        entry_frame,
+                                        duration
+                                    ])
+                                
+                                # Start tracking new store
+                                current_store = entry['store_name']
+                                entry_frame = entry['frame']
+                                entry_time = entry['entry_time']
+                            
+                            # If this is the last entry, write it
+                            if i == len(sorted_history) - 1:
+                                duration = entry['frame'] - entry_frame
+                                writer.writerow([
+                                    person_id,
+                                    current_store,
+                                    entry_time,
+                                    entry_frame,
+                                    duration
+                                ])
                 
                 QMessageBox.information(self, "Success", 
-                    f"Movement log exported successfully to:\n{file_path}")
+                    f"Movement log exported successfully to:\n{file_path}\n\n"
+                    "The log includes:\n"
+                    "• One entry per store visit\n"
+                    "• Entry time and frame number\n"
+                    "• Duration of stay in frames")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to export movement log: {str(e)}")
 
