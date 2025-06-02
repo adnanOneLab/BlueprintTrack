@@ -110,7 +110,11 @@ class CCTVPreview(QWidget):
                 try:
                     detected_people = self.aws_service.detect_people(frame, current_time)
                     if detected_people:
+                        # Update tracking without clearing tracked_people
                         self.tracked_people = self.person_tracker.update(detected_people, self.stores, self.frame_number)
+                    else:
+                        # If no detections, still update tracking to clean up old tracks
+                        self.tracked_people = self.person_tracker.update([], self.stores, self.frame_number)
                 except Exception as e:
                     print(f"Error in person detection: {str(e)}")
         

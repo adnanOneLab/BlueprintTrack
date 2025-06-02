@@ -6,14 +6,17 @@ class PersonTracker:
         self.next_id = 1
         self.tracked_people = {}  # id -> {bbox, last_seen, current_store, history, last_store}
         self.store_entry_threshold = 0.5
-        self.max_frames_missing = 30
-        self.iou_threshold = 0.3
+        self.max_frames_missing = 30  # Increased to maintain IDs longer
+        self.iou_threshold = 0.2  # Lowered to be more lenient in matching
         self.min_confidence = 0.75  # Match AWS confidence threshold
-        self.max_movement = 150
-        self.velocity_smoothing = 0.7
+        self.max_movement = 300  # Increased to handle faster movements
+        self.velocity_smoothing = 0.95  # Increased for more stable tracking
         self.last_positions = {}  # Store last positions for velocity calculation
         self.notified_entries = set()  # Track which store entries we've already notified
         self.notified_exits = set()  # Track which store exits we've already notified
+        self.track_history = {}  # Store recent positions for each track
+        self.max_history = 10  # Increased history length
+        self.active_tracks = set()  # Keep track of currently active track IDs
     
     def calculate_iou(self, bbox1, bbox2):
         """Calculate Intersection over Union between two bounding boxes"""
@@ -82,6 +85,14 @@ class PersonTracker:
         # Filter detections by confidence
         detected_people = [p for p in detected_people if p['confidence'] >= self.min_confidence]
         
+        # Update track history for existing tracks
+        for person_id in self.tracked_people:
+            if person_id not in self.track_history:
+                self.track_history[person_id] = []
+            self.track_history[person_id].append(self.tracked_people[person_id]['bbox'])
+            if len(self.track_history[person_id]) > self.max_history:
+                self.track_history[person_id].pop(0)
+        
         # Update existing tracks with predictions
         for person_id in list(self.tracked_people.keys()):
             person = self.tracked_people[person_id]
@@ -90,50 +101,15 @@ class PersonTracker:
                 predicted_bbox = self.predict_next_position(person['bbox'], velocity)
                 person['predicted_bbox'] = predicted_bbox
             person['last_seen'] = frame_number
-            
-            # Check for store exit if person was in a store
-            if person['current_store'] is not None:
-                # Check if person is still in any store
-                in_store = False
-                for store_id, store in stores.items():
-                    if "video_polygon" in store and len(store["video_polygon"]) > 2:
-                        if self.is_person_in_store(person['bbox'], store["video_polygon"]):
-                            in_store = True
-                            if person['current_store'] != store_id:
-                                # Person moved to a different store
-                                old_store = person['current_store']
-                                person['current_store'] = store_id
-                                # Log store change
-                                entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
-                                person['history'].append({
-                                    'store_id': store_id,
-                                    'store_name': store.get('name', 'Unknown'),
-                                    'entry_time': entry_time,
-                                    'frame': frame_number,
-                                    'type': 'entry'
-                                })
-                                print(f"Person {person_id} moved from {stores[old_store].get('name', 'Unknown')} to {store.get('name', 'Unknown')} at {entry_time}")
-                            break
-                
-                if not in_store:
-                    # Person has exited the store
-                    exit_key = f"{person_id}_{person['current_store']}"
-                    if exit_key not in self.notified_exits:
-                        exit_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
-                        person['history'].append({
-                            'store_id': person['current_store'],
-                            'store_name': stores[person['current_store']].get('name', 'Unknown'),
-                            'exit_time': exit_time,
-                            'frame': frame_number,
-                            'type': 'exit'
-                        })
-                        print(f"Person {person_id} exited {stores[person['current_store']].get('name', 'Unknown')} at {exit_time}")
-                        self.notified_exits.add(exit_key)
-                    person['current_store'] = None
+            self.active_tracks.add(person_id)
         
         # Match new detections to existing tracks
         matched_detections = set()
-        for person_id, person in self.tracked_people.items():
+        unmatched_tracks = set(self.tracked_people.keys())
+        
+        # First pass: Try to match with high confidence using predicted positions
+        for person_id in list(unmatched_tracks):
+            person = self.tracked_people[person_id]
             best_score = 0
             best_detection = None
             
@@ -141,26 +117,43 @@ class PersonTracker:
                 if i in matched_detections:
                     continue
                 
+                # Try matching with predicted position first
                 bbox_to_compare = person.get('predicted_bbox', person['bbox'])
                 iou = self.calculate_iou(bbox_to_compare, detection['bbox'])
+                
+                # Skip if IOU is too low
+                if iou < 0.1:  # Very low threshold for initial matching
+                    continue
+                
+                # Calculate movement score
                 movement = self.calculate_movement(bbox_to_compare, detection['bbox'])
                 movement_score = 1 - (movement / self.max_movement) if movement < self.max_movement else 0
-                score = (0.7 * iou) + (0.3 * movement_score)
                 
-                if score > self.iou_threshold and score > best_score:
+                # Calculate history score
+                history_score = 0
+                if person_id in self.track_history and len(self.track_history[person_id]) > 0:
+                    history_ious = [self.calculate_iou(hist_bbox, detection['bbox']) 
+                                  for hist_bbox in self.track_history[person_id]]
+                    history_score = max(history_ious) if history_ious else 0
+                
+                # Combined score with adjusted weights
+                score = (0.4 * iou) + (0.3 * movement_score) + (0.3 * history_score)
+                
+                if score > best_score:
                     best_score = score
                     best_detection = (i, detection)
             
-            if best_detection:
+            if best_detection and best_score > self.iou_threshold:
                 idx, detection = best_detection
                 matched_detections.add(idx)
+                unmatched_tracks.remove(person_id)
                 
-                # Calculate velocity for next prediction
+                # Update person data
                 old_bbox = person['bbox']
                 new_bbox = detection['bbox']
-                velocity = self.calculate_velocity(old_bbox, new_bbox)
                 
-                # Smooth velocity
+                # Calculate and smooth velocity
+                velocity = self.calculate_velocity(old_bbox, new_bbox)
                 if person_id in self.last_positions:
                     old_velocity = self.last_positions[person_id].get('velocity', (0, 0))
                     velocity = (
@@ -168,43 +161,48 @@ class PersonTracker:
                         self.velocity_smoothing * old_velocity[1] + (1 - self.velocity_smoothing) * velocity[1]
                     )
                 
-                # Update person data
                 person['bbox'] = new_bbox
                 person['confidence'] = detection['confidence']
                 person['timestamp'] = detection.get('timestamp', current_time.timestamp())
                 
-                # Store velocity for next prediction
+                # Update velocity and position history
                 self.last_positions[person_id] = {
                     'velocity': velocity,
                     'last_update': frame_number
                 }
                 
-                # Check store entry
-                for store_id, store in stores.items():
-                    if "video_polygon" in store and len(store["video_polygon"]) > 2:
-                        if self.is_person_in_store(new_bbox, store["video_polygon"]):
-                            if person['current_store'] != store_id:
-                                # Only notify if we haven't notified this person-store combination before
-                                entry_key = f"{person_id}_{store_id}"
-                                if entry_key not in self.notified_entries:
-                                    entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
-                                    person['history'].append({
-                                        'store_id': store_id,
-                                        'store_name': store.get('name', 'Unknown'),
-                                        'entry_time': entry_time,
-                                        'frame': frame_number,
-                                        'type': 'entry'
-                                    })
-                                    print(f"Person {person_id} entered {store.get('name', 'Unknown')} at {entry_time}")
-                                    self.notified_entries.add(entry_key)
-                            person['current_store'] = store_id
-                            break
+                # Update track history
+                if person_id not in self.track_history:
+                    self.track_history[person_id] = []
+                self.track_history[person_id].append(new_bbox)
+                if len(self.track_history[person_id]) > self.max_history:
+                    self.track_history[person_id].pop(0)
+        
+        # Clean up old tracks that haven't been seen for a while
+        current_frame = frame_number
+        self.tracked_people = {
+            pid: person for pid, person in self.tracked_people.items()
+            if current_frame - person['last_seen'] < self.max_frames_missing
+        }
+        self.last_positions = {
+            pid: pos for pid, pos in self.last_positions.items()
+            if current_frame - pos['last_update'] < self.max_frames_missing
+        }
+        self.track_history = {
+            pid: history for pid, history in self.track_history.items()
+            if pid in self.tracked_people
+        }
         
         # Add new tracks for unmatched detections
         for i, detection in enumerate(detected_people):
             if i not in matched_detections:
+                # Find the next available ID that hasn't been used recently
+                while self.next_id in self.active_tracks:
+                    self.next_id += 1
+                
                 person_id = self.next_id
                 self.next_id += 1
+                self.active_tracks.add(person_id)
                 
                 # Initialize with zero velocity
                 self.last_positions[person_id] = {
@@ -212,13 +210,15 @@ class PersonTracker:
                     'last_update': frame_number
                 }
                 
+                # Initialize track history
+                self.track_history[person_id] = [detection['bbox']]
+                
                 # Check initial store
                 current_store = None
                 for store_id, store in stores.items():
                     if "video_polygon" in store and len(store["video_polygon"]) > 2:
                         if self.is_person_in_store(detection['bbox'], store["video_polygon"]):
                             current_store = store_id
-                            # Add to notified entries for new detections in stores
                             entry_key = f"{person_id}_{store_id}"
                             if entry_key not in self.notified_entries:
                                 entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -234,26 +234,8 @@ class PersonTracker:
                     'history': [],
                     'timestamp': detection.get('timestamp', current_time.timestamp())
                 }
-                
-                if current_store:
-                    entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
-                    self.tracked_people[person_id]['history'].append({
-                        'store_id': current_store,
-                        'store_name': stores[current_store].get('name', 'Unknown'),
-                        'entry_time': entry_time,
-                        'frame': frame_number,
-                        'type': 'entry'
-                    })
         
-        # Clean up old tracks and positions
-        current_frame = frame_number
-        self.tracked_people = {
-            pid: person for pid, person in self.tracked_people.items()
-            if current_frame - person['last_seen'] < self.max_frames_missing
-        }
-        self.last_positions = {
-            pid: pos for pid, pos in self.last_positions.items()
-            if current_frame - pos['last_update'] < self.max_frames_missing
-        }
+        # Clean up active tracks set
+        self.active_tracks = set(self.tracked_people.keys())
         
         return self.tracked_people

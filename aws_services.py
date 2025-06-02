@@ -12,7 +12,7 @@ class AWSRekognitionService:
         self.aws_enabled = False
         self.api_calls_count = 0
         self.last_api_call_time = 0.0
-        self.detection_interval = 4.0  # AWS detection every 4 seconds
+        self.detection_interval = 2.0  # AWS detection every 4 seconds
         self.last_detection_time = 0.0
     
     def enable_aws_rekognition(self, aws_region='ap-south-1'):
