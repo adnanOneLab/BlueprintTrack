@@ -59,8 +59,8 @@ class VideoHandlerMixin:
         # Scale frame to fit widget while maintaining aspect ratio
         self.update_scaled_frame()
         
-        # Only process frames and update tracking during export
-        if self.is_exporting:
+        # Only process frames and update tracking during export mode
+        if self.is_exporting and self.aws_service.is_exporting:
             current_time = self.frame_number / self.fps
             
             # Process person detection if AWS is enabled

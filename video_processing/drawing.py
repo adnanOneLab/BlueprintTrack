@@ -16,8 +16,8 @@ class DrawingMixin:
                        self.scaled_frame.strides[0], QImage.Format.Format_RGB888)
         painter.drawImage(self.frame_offset_x, self.frame_offset_y, qimage)
         
-        # Only draw tracked people during export
-        if self.is_exporting and self.aws_service.aws_enabled and self.tracked_people:
+        # Only draw tracked people during export mode
+        if self.is_exporting and self.aws_service.is_exporting and self.tracked_people:
             for person_id, person in self.tracked_people.items():
                 x, y, w, h = person['bbox']
                 current_store = person['current_store']

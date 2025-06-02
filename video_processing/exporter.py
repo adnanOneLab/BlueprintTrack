@@ -23,6 +23,9 @@ class ExportMixin:
                 print("Warning: No stores defined")
                 return False
             
+            # Enable AWS for export mode
+            self.aws_service.set_export_mode(True)
+            
             # Verify store polygons and calculate video polygons
             for store_id, store in self.stores.items():
                 if "polygon" not in store or len(store["polygon"]) < 3:
@@ -90,6 +93,8 @@ class ExportMixin:
             frame_count = 0
             processed_frames = 0
             detection_count = 0
+            face_detection_count = 0  # Track total face detections
+            body_images_saved = 0  # Track total body images saved
             
             while frame_count < total_frames:
                 # Get current frame number
@@ -142,16 +147,29 @@ class ExportMixin:
                             except Exception as e:
                                 print(f"Error drawing store {store_id}: {str(e)}")
                     
-                    # Process person detection
+                    # Process person and face detection
                     current_time = frame_count / fps
                     if self.aws_service.aws_enabled:
                         try:
                             print(f"Processing frame {frame_count} at time {current_time:.2f}s")
+                            # Detect people
                             detected_people = self.aws_service.detect_people(frame, current_time)
                             if detected_people:
-                                self.tracked_people = self.person_tracker.update(detected_people, self.stores, frame_count)
+                                detection_count += len(detected_people)
+                            
+                            # Detect faces
+                            face_detections = self.aws_service.detect_faces(frame, current_time)
+                            if face_detections:
+                                face_detection_count += len(face_detections)
+                                # Count body images saved
+                                body_images_saved += sum(1 for face in face_detections if face.get('image_path'))
+                            
+                            # Update tracking with both detections
+                            self.tracked_people = self.person_tracker.update(
+                                detected_people, self.stores, frame_count, face_detections
+                            )
                         except Exception as e:
-                            print(f"Error in person detection at frame {frame_count}: {str(e)}")
+                            print(f"Error in detection at frame {frame_count}: {str(e)}")
                     
                     # Draw tracked people
                     if self.tracked_people:
@@ -184,6 +202,12 @@ class ExportMixin:
                             cv2.putText(frame_draw, label,
                                       (x, y - 2),
                                       font, font_scale, (255, 255, 255), thickness)
+                            
+                            # Draw face detection if available
+                            if 'face_detections' in person and person['face_detections']:
+                                latest_face = person['face_detections'][-1]
+                                fx, fy, fw, fh = latest_face['bbox']
+                                cv2.rectangle(frame_draw, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)  # Blue for face
                     
                     # Write frame
                     self.video_writer.write(frame_draw)
@@ -200,7 +224,9 @@ class ExportMixin:
             
             print(f"Export completed:")
             print(f"- Total frames processed: {processed_frames}")
-            print(f"- Total detections made: {detection_count}")
+            print(f"- Total person detections: {detection_count}")
+            print(f"- Total face detections: {face_detection_count}")
+            print(f"- Body images saved: {body_images_saved}")
             print(f"- AWS API calls: {self.aws_service.api_calls_count}")
             
             # Clean up
@@ -209,11 +235,19 @@ class ExportMixin:
             self.is_exporting = False
             self.export_progress = 0
             
+            # Disable AWS for preview mode
+            self.aws_service.set_export_mode(False)
+            
             # Restore video capture position
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
             self.update_frame()
             
-            self.status_message.emit(f"Video exported successfully to: {output_path}")
+            self.status_message.emit(
+                f"Video exported successfully to: {output_path}\n"
+                f"Total person detections: {detection_count}\n"
+                f"Total face detections: {face_detection_count}\n"
+                f"Body images saved: {body_images_saved}"
+            )
             return True
             
         except Exception as e:
@@ -222,6 +256,8 @@ class ExportMixin:
                 self.video_writer = None
             self.is_exporting = False
             self.export_progress = 0
+            # Ensure AWS is disabled
+            self.aws_service.set_export_mode(False)
             # Restore video capture position on error
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
             self.status_message.emit(f"Error exporting video: {str(e)}")
