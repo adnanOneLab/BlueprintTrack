@@ -37,7 +37,9 @@ class CCTVPreview(QWidget, VideoHandlerMixin, DrawingMixin, CalibrationMixin, Ex
 
         self.tracked_people = {}
 
+        # Initialize person tracker with YOLO
         self.person_tracker = PersonTracker()
+        # Keep AWS service for face detection only
         self.aws_service = AWSRekognitionService()
 
         # Initialize mixins
@@ -64,22 +66,19 @@ class CCTVPreview(QWidget, VideoHandlerMixin, DrawingMixin, CalibrationMixin, Ex
         # Update current time
         self.current_time = self.frame_number / self.fps
         
-        # Detect people and faces
-        detected_people = self.aws_service.detect_people(frame_rgb, self.current_time)
-        face_detections = self.aws_service.detect_faces(frame_rgb, self.current_time)
+        # Use PersonTracker's YOLO detection instead of AWS
+        self.tracked_people = self.person_tracker.process_frame(frame_rgb, self.stores)
         
-        # Update person tracker with both detections
-        self.tracked_people = self.person_tracker.update(
-            detected_people, self.stores, self.frame_number, face_detections
-        )
+        # Optionally get face detections from AWS if needed
+        face_detections = self.aws_service.detect_faces(frame_rgb, self.current_time) if self.aws_service.aws_enabled else []
         
         # Draw detections and tracking info
-        self.draw_detections(frame_rgb)
+        frame_with_detections = self.person_tracker.draw_detections(frame_rgb)
         
-        return frame_rgb
+        return frame_with_detections
 
     def draw_detections(self, frame):
-        """Draw person and face detections on the frame"""
+        """Draw store boundaries and additional information"""
         # Draw store boundaries
         for store_id, store in self.stores.items():
             if "video_polygon" in store and len(store["video_polygon"]) > 2:
@@ -92,32 +91,15 @@ class CCTVPreview(QWidget, VideoHandlerMixin, DrawingMixin, CalibrationMixin, Ex
                     cv2.putText(frame, store["name"], tuple(centroid), 
                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
-        # Draw tracked people
-        for person_id, person in self.tracked_people.items():
-            x, y, w, h = person['bbox']
-            
-            # Draw bounding box
-            color = (0, 255, 0)  # Green for tracked people
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            
-            # Draw person ID and confidence
-            label = f"ID: {person_id} ({person['confidence']:.1f})"
-            cv2.putText(frame, label, (x, y - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            # Draw face detection if available
-            if 'face_detections' in person and person['face_detections']:
-                latest_face = person['face_detections'][-1]
-                fx, fy, fw, fh = latest_face['bbox']
+        # Draw face detections if available
+        if self.aws_service.aws_enabled:
+            for face in self.aws_service.last_face_detections:
+                fx, fy, fw, fh = face['bbox']
                 cv2.rectangle(frame, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)  # Blue for face
                 
                 # Draw face confidence
-                face_label = f"Face: {latest_face['confidence']:.1f}"
+                face_label = f"Face: {face['confidence']:.1f}"
                 cv2.putText(frame, face_label, (fx, fy - 10), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-            
-            # Draw current store if in one
-            if person['current_store'] and person['current_store'] in self.stores:
-                store_name = self.stores[person['current_store']]['name']
-                cv2.putText(frame, f"Store: {store_name}", (x, y + h + 20), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        return frame

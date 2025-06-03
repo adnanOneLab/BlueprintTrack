@@ -59,22 +59,18 @@ class VideoHandlerMixin:
         # Scale frame to fit widget while maintaining aspect ratio
         self.update_scaled_frame()
         
-        # Only process frames and update tracking during export mode
-        if self.is_exporting and self.aws_service.is_exporting:
-            current_time = self.frame_number / self.fps
-            
-            # Process person detection if AWS is enabled
-            if self.aws_service.aws_enabled:
-                try:
-                    detected_people = self.aws_service.detect_people(frame, current_time)
-                    if detected_people:
-                        # Update tracking without clearing tracked_people
-                        self.tracked_people = self.person_tracker.update(detected_people, self.stores, self.frame_number)
-                    else:
-                        # If no detections, still update tracking to clean up old tracks
-                        self.tracked_people = self.person_tracker.update([], self.stores, self.frame_number)
-                except Exception as e:
-                    print(f"Error in person detection: {str(e)}")
+        # Process frames and update tracking during export mode
+        if self.is_exporting:
+            try:
+                # Use PersonTracker's YOLO detection
+                self.tracked_people = self.person_tracker.process_frame(self.current_frame, self.stores)
+                
+                # Optionally get face detections from AWS if enabled
+                if self.aws_service.aws_enabled:
+                    current_time = self.frame_number / self.fps
+                    self.aws_service.detect_faces(self.current_frame, current_time)
+            except Exception as e:
+                print(f"Error in frame processing: {str(e)}")
         
         self.frame_number += 1
         self.update()  # Ensure the widget is updated to show new frame
