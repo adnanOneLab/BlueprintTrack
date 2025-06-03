@@ -10,7 +10,7 @@ class PersonTracker:
         self.iou_threshold = 0.25  # Slightly reduced for better matching
         self.min_confidence = 0.60
         self.max_movement = 150  # Reduced to prevent large jumps
-        self.velocity_smoothing = 0.7
+        self.velocity_smoothing = 0.5
         self.last_positions = {}  # Store last positions for velocity calculation
         self.track_history = {}  # Store recent positions for each track
         self.max_history = 3  # Reduced for less memory usage
@@ -18,9 +18,17 @@ class PersonTracker:
         self.max_face_history = 2
         self.last_store = {}  # Track last store for each person
         self.frame_counter = 0  # Add frame counter for better tracking
+
+        # Adjust thresholds for CCTV footage (lower frame rate, lower resolution)
+        self.movement_threshold = 5.0  # Increased from 3.0 to 5.0 pixels for CCTV
+        self.movement_history = {}  # Store recent movement states
+        self.movement_history_size = 2  # Reduced to 2 frames for CCTV (lower frame rate)
+        self.velocity_threshold = 2.0  # Increased to 2.0 for CCTV footage
+        self.velocity_smoothing = 0.5  # Reduced smoothing for more responsive movement detection
         
         # Add debugging flags
         self.debug_mode = True
+        self.debug_movement = True  # Enable movement debugging
     
     def calculate_iou(self, bbox1, bbox2):
         """Calculate Intersection over Union between two bounding boxes"""
@@ -45,6 +53,10 @@ class PersonTracker:
         
         return (new_center_x - old_center_x, new_center_y - old_center_y)
     
+    def calculate_velocity_magnitude(self, velocity):
+        """Calculate velocity magnitude from velocity vector"""
+        return (velocity[0] ** 2 + velocity[1] ** 2) ** 0.5
+    
     def predict_next_position(self, bbox, velocity):
         """Predict next position based on current position and velocity"""
         x, y, w, h = bbox
@@ -58,6 +70,57 @@ class PersonTracker:
         x2 = bbox2[0] + bbox2[2] / 2
         y2 = bbox2[1] + bbox2[3] / 2
         return ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+    
+    def calculate_movement_distance(self, bbox1, bbox2):
+        """Calculate the center point distance between two bounding boxes"""
+        x1_center = bbox1[0] + bbox1[2] / 2
+        y1_center = bbox1[1] + bbox1[3] / 2
+        x2_center = bbox2[0] + bbox2[2] / 2
+        y2_center = bbox2[1] + bbox2[3] / 2
+        
+        distance = ((x2_center - x1_center) ** 2 + (y2_center - y1_center) ** 2) ** 0.5
+        return distance
+    
+    def update_movement_status(self, person_id, person, old_bbox, new_bbox, velocity):
+        """Update movement status with improved logic for CCTV footage"""
+        # Calculate movement distance
+        movement_distance = self.calculate_movement_distance(old_bbox, new_bbox)
+        velocity_magnitude = self.calculate_velocity_magnitude(velocity)
+        
+        # For CCTV, we need to account for larger movements between frames
+        # due to lower frame rate
+        is_moving_distance = movement_distance > self.movement_threshold
+        is_moving_velocity = velocity_magnitude > self.velocity_threshold
+        
+        # For CCTV, we want to be more responsive to movement
+        # since frames are further apart
+        current_moving = is_moving_distance or is_moving_velocity
+        
+        # Initialize movement history if needed
+        if person_id not in self.movement_history:
+            self.movement_history[person_id] = []
+        
+        # Add current movement state to history
+        self.movement_history[person_id].append(current_moving)
+        
+        # Keep only recent history (shorter for CCTV due to lower frame rate)
+        if len(self.movement_history[person_id]) > self.movement_history_size:
+            self.movement_history[person_id].pop(0)
+        
+        # For CCTV, we want to be more responsive to movement changes
+        # since frames are further apart
+        moving_frames = sum(self.movement_history[person_id])
+        total_frames = len(self.movement_history[person_id])
+        
+        # Person is moving if at least one frame shows movement
+        # This is more appropriate for CCTV's lower frame rate
+        person['is_moving'] = moving_frames > 0
+        
+        # Debug information
+        if self.debug_movement:
+            print(f"Person {person_id}: Distance={movement_distance:.1f}, "
+                  f"Velocity={velocity_magnitude:.1f}, "
+                  f"Moving={person['is_moving']} ({moving_frames}/{total_frames})")
     
     def is_person_in_store(self, person_bbox, store_polygon):
         """Check if a person is inside a store using polygon intersection"""
@@ -101,6 +164,7 @@ class PersonTracker:
             self.track_history.pop(person_id, None)
             self.face_detection_history.pop(person_id, None)
             self.last_store.pop(person_id, None)
+            self.movement_history.pop(person_id, None)
         
         if self.debug_mode and tracks_to_remove:
             print(f"Cleaned up {len(tracks_to_remove)} old tracks. Active tracks: {len(self.tracked_people)}")
@@ -227,12 +291,19 @@ class PersonTracker:
                         self.velocity_smoothing * old_velocity[0] + (1 - self.velocity_smoothing) * velocity[0],
                         self.velocity_smoothing * old_velocity[1] + (1 - self.velocity_smoothing) * velocity[1]
                     )
+
+                # IMPROVED: Update movement status with better logic
+                self.update_movement_status(best_track_id, person, old_bbox, new_bbox, velocity)
                 
                 # Update person data
                 person['bbox'] = new_bbox
                 person['confidence'] = detection['confidence']
                 person['last_seen'] = frame_number
                 person['timestamp'] = detection.get('timestamp', current_time.timestamp())
+
+                # Store movement distance for debugging
+                person['last_movement_distance'] = self.calculate_movement_distance(old_bbox, new_bbox)
+                person['velocity_magnitude'] = self.calculate_velocity_magnitude(velocity)
                 
                 # Update velocity and position history
                 self.last_positions[best_track_id] = {
@@ -268,7 +339,10 @@ class PersonTracker:
                     'last_seen': frame_number,
                     'current_store': None,
                     'history': [],
-                    'timestamp': detection.get('timestamp', current_time.timestamp())
+                    'timestamp': detection.get('timestamp', current_time.timestamp()),
+                    'is_moving': False,  # New tracks start as not moving
+                    'last_movement_distance': 0.0,
+                    'velocity_magnitude': 0.0
                 }
                 
                 # Initialize tracking data
@@ -276,6 +350,9 @@ class PersonTracker:
                     'velocity': (0, 0),
                     'last_update': frame_number
                 }
+
+                self.track_history[person_id] = [detection['bbox']]
+                self.movement_history[person_id] = [False]
                 self.track_history[person_id] = [detection['bbox']]
                 self.face_detection_history[person_id] = []
                 self.last_store[person_id] = None

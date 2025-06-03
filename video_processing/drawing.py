@@ -44,11 +44,12 @@ class DrawingMixin:
                     continue
                 
                 # Calculate confidence-based color intensity
-                confidence = person.get('confidence', 0)
-                color_intensity = max(128, min(255, int(128 + (confidence - 60) * 2)))
-                
-                # Draw bounding box with confidence-based color
-                painter.setPen(QPen(QColor(0, 0, color_intensity), 2))
+                is_moving = person.get('is_moving', False)
+                if is_moving:
+                    pen_color = QColor(255, 165, 0)  # Orange for moving
+                else:
+                    pen_color = QColor(0, 0, 255)    # Blue for idle
+                painter.setPen(QPen(pen_color, 2))
                 painter.drawRect(scaled_x, scaled_y, scaled_w, scaled_h)
                 
                 # Draw label with store info if in store
@@ -59,10 +60,9 @@ class DrawingMixin:
                     label = f"ID:{person_id}|{store_display}"
                 else:
                     label = f"ID:{person_id}|OUT"
-                
-                # Add confidence to label for debugging
-                if hasattr(self, 'debug_mode') and self.debug_mode:
-                    label += f"|{confidence:.0f}%"
+
+                status = "Moving" if person.get('is_moving', False) else "Idle"
+                label += f"|{status}"
                 
                 painter.setFont(QFont("Arial", 10))
                 painter.setPen(QColor(255, 255, 255))

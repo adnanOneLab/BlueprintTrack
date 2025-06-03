@@ -176,16 +176,25 @@ class ExportMixin:
                         for person_id, person in self.tracked_people.items():
                             x, y, w, h = person['bbox']
                             current_store = person['current_store']
+                            is_moving = person.get('is_moving', False)
                             
-                            # Draw bounding box (red for all detections)
-                            cv2.rectangle(frame_draw, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                            # Set color based on movement status
+                            if is_moving:
+                                box_color = (0, 165, 255)  # Orange for moving (BGR format)
+                                status = "MOVING"
+                            else:
+                                box_color = (255, 0, 0)    # Blue for idle (BGR format)
+                                status = "IDLE"
                             
-                            # Draw label with store info
+                            # Draw bounding box with movement status color
+                            cv2.rectangle(frame_draw, (x, y), (x + w, y + h), box_color, 2)
+                            
+                            # Draw label with store info and movement status
                             if current_store is not None:
                                 store_name = self.stores[current_store]['name']
-                                label = f"{person_id}|{store_name[:5]}"
+                                label = f"{person_id}|{store_name[:5]}|{status}"
                             else:
-                                label = f"{person_id}|OUT"
+                                label = f"{person_id}|OUT|{status}"
                             
                             font = cv2.FONT_HERSHEY_SIMPLEX
                             font_scale = 0.8
