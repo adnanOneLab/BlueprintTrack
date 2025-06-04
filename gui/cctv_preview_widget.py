@@ -66,11 +66,8 @@ class CCTVPreview(QWidget, VideoHandlerMixin, DrawingMixin, CalibrationMixin, Ex
         # Update current time
         self.current_time = self.frame_number / self.fps
         
-        # Use PersonTracker's YOLO detection instead of AWS
+        # Use PersonTracker's YOLO detection for all tracking
         self.tracked_people = self.person_tracker.process_frame(frame_rgb, self.stores)
-        
-        # Optionally get face detections from AWS if needed
-        face_detections = self.aws_service.detect_faces(frame_rgb, self.current_time) if self.aws_service.aws_enabled else []
         
         # Draw detections and tracking info
         frame_with_detections = self.person_tracker.draw_detections(frame_rgb)
