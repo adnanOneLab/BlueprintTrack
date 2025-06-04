@@ -319,16 +319,16 @@ class PersonTracker:
         person['person_height'] = person_height  # NEW: Store person height for debugging
         
         # Enhanced debug information for CCTV
-        if self.debug_movement:
-            reasons_str = ", ".join(movement_reasons) if movement_reasons else "no movement"
-            print(f"Person {person_id}: "
-                f"Dist={movement_distance:.1f}, "
-                f"Vel={velocity_magnitude:.1f}, "
-                f"Avg={avg_movement:.1f}, "
-                f"Height={person_height}, "
-                f"Indicators={movement_indicators}, "
-                f"State={person['movement_state']}, "
-                f"Reasons=[{reasons_str}]")
+        # if self.debug_movement:
+        #     reasons_str = ", ".join(movement_reasons) if movement_reasons else "no movement"
+        #     print(f"Person {person_id}: "
+        #         f"Dist={movement_distance:.1f}, "
+        #         f"Vel={velocity_magnitude:.1f}, "
+        #         f"Avg={avg_movement:.1f}, "
+        #         f"Height={person_height}, "
+        #         f"Indicators={movement_indicators}, "
+        #         f"State={person['movement_state']}, "
+        #         f"Reasons=[{reasons_str}]")
     
     def is_person_in_store(self, person_bbox, store_polygon):
         """Check if a person is inside a store using polygon intersection"""
@@ -362,8 +362,6 @@ class PersonTracker:
             frames_missing = current_frame - person['last_seen']
             if frames_missing >= self.max_frames_missing:
                 tracks_to_remove.append(person_id)
-                if self.debug_mode:
-                    print(f"Removing track {person_id} - missing for {frames_missing} frames")
         
         # Remove old tracks from all dictionaries
         for person_id in tracks_to_remove:
@@ -372,9 +370,6 @@ class PersonTracker:
             self.track_history.pop(person_id, None)
             self.face_detection_history.pop(person_id, None)
             self.last_store.pop(person_id, None)
-        
-        if self.debug_mode and tracks_to_remove:
-            print(f"Cleaned up {len(tracks_to_remove)} old tracks. Active tracks: {len(self.tracked_people)}")
     
     def find_best_match(self, detection, unmatched_tracks):
         """IMPROVED: Enhanced matching with movement prediction and size consistency"""
@@ -485,9 +480,6 @@ class PersonTracker:
         # Filter detections by confidence
         detected_people = [p for p in detected_people if p.get('confidence', 0) >= self.min_confidence]
         
-        if self.debug_mode:
-            print(f"\nFrame {frame_number}: Processing {len(detected_people)} detections, {len(self.tracked_people)} active tracks")
-        
         # Clean up old tracks first
         self.cleanup_old_tracks(frame_number)
         
@@ -563,9 +555,6 @@ class PersonTracker:
                 # Mark as matched
                 matched_detections.add(i)
                 unmatched_tracks.remove(best_track_id)
-                
-                if self.debug_mode:
-                    print(f"  Matched detection {i} to track {best_track_id} (score: {best_score:.3f})")
         
         # Create new tracks for unmatched detections
         for i, detection in enumerate(detected_people):
@@ -598,17 +587,11 @@ class PersonTracker:
                 
                 # Update store status for new track
                 self.update_store_status(person_id, self.tracked_people[person_id], stores, current_time, frame_number)
-                
-                if self.debug_mode:
-                    print(f"  Created new track {person_id} for unmatched detection {i}")
         
         # Update last_seen for all remaining unmatched tracks (they weren't updated this frame)
         for person_id in unmatched_tracks:
             # Don't update last_seen - let them age out naturally
             pass
-        
-        if self.debug_mode:
-            print(f"Frame {frame_number} complete: {len(self.tracked_people)} active tracks")
         
         return self.tracked_people
 
@@ -694,9 +677,6 @@ class PersonTracker:
                 'confidence': detection['confidence'],
                 'name': 'Unknown'
             })
-        
-        if self.debug_mode:
-            print(f"YOLO detected {len(detections['persons'])} filtered people from {len(results.boxes)} raw detections")
         
         return detections
 

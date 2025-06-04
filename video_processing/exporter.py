@@ -151,27 +151,45 @@ class ExportMixin:
                     current_time = frame_count / fps
                     if self.aws_service.aws_enabled:
                         try:
-                            print(f"Processing frame {frame_count} at time {current_time:.2f}s")
-                            # Detect people
-                            detected_people = self.aws_service.detect_people(frame, current_time)
-                            if detected_people:
-                                detection_count += len(detected_people)
+                            # Use YOLO for person detection and tracking
+                            self.tracked_people = self.person_tracker.process_frame(frame, self.stores)
+                            detection_count += len(self.tracked_people)
                             
-                            # Detect faces
+                            # Use AWS for face detection only
                             face_detections = self.aws_service.detect_faces(frame, current_time)
                             if face_detections:
                                 face_detection_count += len(face_detections)
-                                # Count body images saved
                                 body_images_saved += sum(1 for face in face_detections if face.get('image_path'))
+                                
+                                # Associate face detections with tracked people
+                                for person_id, person in self.tracked_people.items():
+                                    person_bbox = person['bbox']
+                                    # Find matching face detection
+                                    for face in face_detections:
+                                        face_bbox = face['bbox']
+                                        # If face is within person bbox, associate it
+                                        if (face_bbox[0] >= person_bbox[0] and 
+                                            face_bbox[1] >= person_bbox[1] and
+                                            face_bbox[0] + face_bbox[2] <= person_bbox[0] + person_bbox[2] and
+                                            face_bbox[1] + face_bbox[3] <= person_bbox[1] + person_bbox[3]):
+                                            if 'face_detections' not in person:
+                                                person['face_detections'] = []
+                                            person['face_detections'].append(face)
+                                            break
                             
-                            # Update tracking with both detections
-                            self.tracked_people = self.person_tracker.update(
-                                detected_people, self.stores, frame_count, face_detections
-                            )
+                            # Log store entries
+                            for person_id, person in self.tracked_people.items():
+                                if 'history' in person and person['history']:
+                                    latest_entry = person['history'][-1]
+                                    if latest_entry.get('frame') == frame_count:  # Only log new entries
+                                        entry_time = latest_entry['entry_time']
+                                        store_name = latest_entry['store_name']
+                                        print(f"Person {person_id} entered {store_name} at {entry_time}")
+                            
                         except Exception as e:
                             print(f"Error in detection at frame {frame_count}: {str(e)}")
                     
-                    # Draw tracked people
+                    # Draw tracked people and their associated faces
                     if self.tracked_people:
                         for person_id, person in self.tracked_people.items():
                             x, y, w, h = person['bbox']
@@ -186,7 +204,7 @@ class ExportMixin:
                                 box_color = (255, 0, 0)    # Blue for idle (BGR format)
                                 status = "IDLE"
                             
-                            # Draw bounding box with movement status color
+                            # Draw person bounding box with movement status color
                             cv2.rectangle(frame_draw, (x, y), (x + w, y + h), box_color, 2)
                             
                             # Draw label with store info and movement status
@@ -212,11 +230,11 @@ class ExportMixin:
                                       (x, y - 2),
                                       font, font_scale, (255, 255, 255), thickness)
                             
-                            # Draw face detection if available
+                            # Draw associated face detection if available
                             if 'face_detections' in person and person['face_detections']:
                                 latest_face = person['face_detections'][-1]
                                 fx, fy, fw, fh = latest_face['bbox']
-                                cv2.rectangle(frame_draw, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)  # Blue for face
+                                cv2.rectangle(frame_draw, (fx, fy), (fx + fw, fy + fh), (0, 0, 255), 2)
                     
                     # Write frame
                     self.video_writer.write(frame_draw)
@@ -231,7 +249,8 @@ class ExportMixin:
                     print(f"Error processing frame {frame_count}: {str(e)}")
                     continue
             
-            print(f"Export completed:")
+            # Final export statistics
+            print("\nExport completed:")
             print(f"- Total frames processed: {processed_frames}")
             print(f"- Total person detections: {detection_count}")
             print(f"- Total face detections: {face_detection_count}")
