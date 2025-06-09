@@ -9,3 +9,4 @@ venv
 body_images
 yolov8n.pt
 snapshots
+*.pt
