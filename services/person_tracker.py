@@ -7,7 +7,7 @@ import cv2
 class PersonTracker:
     def __init__(self):
         # Load YOLO model
-        self.model = YOLO('yolov8n.pt')  # Using YOLOv8 nano model
+        self.model = YOLO('yolo11n.pt')  # Using YOLOv11 nano model
         
         self.next_id = 1
         self.tracked_people = {}  # id -> {bbox, last_seen, current_store, history, confidence, timestamp, is_moving, position_history}

@@ -1,7 +1,11 @@
 __pycache__
 input_videos
 output
+exports
+body_images
 venv
 *.mp4
 *.avi
 body_images
+yolov8n.pt
+snapshots
