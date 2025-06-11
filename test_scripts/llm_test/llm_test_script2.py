@@ -12,6 +12,8 @@ from collections import Counter
 
 from dotenv import load_dotenv  
 
+
+load_dotenv()
 # Get environment variables
 POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
 POSTGRES_DB_NAME = os.getenv('POSTGRES_DB_NAME', None)
@@ -20,8 +22,6 @@ POSTGRES_PASSWORD=os.getenv('POSTGRES_PASSWORD', None)
 POSTGRES_PORT=os.getenv('POSTGRES_PORT', 5433)
 
 GROK_API_KEY=os.getenv("GROK_API_KEY", None)
-
-load_dotenv()
 
 # Configuration
 DATABASE_CONFIG = {

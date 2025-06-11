@@ -9,13 +9,26 @@ from dataclasses import dataclass
 import logging
 import requests
 
+from dotenv import load_dotenv  
+
+
+load_dotenv()
+# Get environment variables
+POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
+POSTGRES_DB_NAME = os.getenv('POSTGRES_DB_NAME', None)
+POSTGRES_USER=os.getenv('POSTGRES_USER', "postgres")
+POSTGRES_PASSWORD=os.getenv('POSTGRES_PASSWORD', None)
+POSTGRES_PORT=os.getenv('POSTGRES_PORT', 5433)
+
+GROK_API_KEY=os.getenv("GROK_API_KEY", None)
+
 # Configuration
 DATABASE_CONFIG = {
-    "host": "localhost",
-    "database": "mall-user-details",
-    "user" : "postgres",
-    "password" : "adnan",
-    "port": "5433"
+    "host": POSTGRES_HOST,
+    "database": POSTGRES_DB_NAME,
+    "user" : POSTGRES_USER,
+    "password" : POSTGRES_PASSWORD,
+    "port": POSTGRES_PORT
 }
 
 # Free LLM Options Configuration
@@ -23,7 +36,7 @@ LLM_CONFIG = {
     "provider": "groq",
     # Groq (free tier available)
     "groq": {
-        "api_key": "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",  # Get free from groq.com
+        "api_key": GROK_API_KEY,  # Get free from groq.com
         "model": "llama3-8b-8192",
         "base_url": "https://api.groq.com/openai/v1"
     }
