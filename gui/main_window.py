@@ -1,64 +1,146 @@
-import cv2
-import numpy as np
+# Standard library imports
+import csv
 import json
 import os
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QFileDialog, QMessageBox, QToolBar,
-    QStatusBar, QTextEdit, QComboBox, QGroupBox, QSplitter, QDialog, QDialogButtonBox, 
-    QProgressDialog
-)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction
-import csv
 
+# Third-party imports
+import cv2
+import numpy as np
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QAction, QIcon, QFont, QPainter, QImage
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QFileDialog, QMessageBox, QToolBar,
+    QStatusBar, QTextEdit, QComboBox, QGroupBox, QSplitter, QDialog, 
+    QDialogButtonBox, QProgressDialog, QTabWidget, QScrollArea, QSizePolicy
+)
+
+# Local imports
 from blueprint.blueprint_processor import FullBlueprintProcessor
 from gui.blueprint_view import BlueprintView
 from gui.cctv_preview_widget import CCTVPreview
 
 
 class MainWindow(QMainWindow):
-    """Main application window"""
+    """Main application window with enhanced GUI"""
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Mall Blueprint Mapping Tool")
         self.setMinimumSize(1200, 800)
         
+        # Set application style
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f0f0f0;
+            }
+            QGroupBox {
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px;
+            }
+            QPushButton {
+                background-color: #e0e0e0;
+                border: 1px solid #aaa;
+                border-radius: 4px;
+                padding: 5px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #d0d0d0;
+            }
+            QPushButton:pressed {
+                background-color: #c0c0c0;
+            }
+            QToolBar {
+                background: #e0e0e0;
+                border: none;
+                padding: 2px;
+            }
+            QStatusBar {
+                background: #e0e0e0;
+            }
+            QTextEdit {
+                background: white;
+                border: 1px solid #ccc;
+            }
+            QComboBox {
+                padding: 3px;
+                border: 1px solid #aaa;
+                border-radius: 3px;
+            }
+        """)
+        
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QHBoxLayout(central_widget)
-        layout.setSpacing(10)  # Add some spacing between widgets
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Create splitter for blueprint and video views
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Create main splitter
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Create main view with fixed width ratio
+        # Create left panel with blueprint and video
+        left_panel = QWidget()
+        left_panel_layout = QVBoxLayout(left_panel)
+        left_panel_layout.setSpacing(5)
+        left_panel_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create tab widget for blueprint and video
+        self.view_tabs = QTabWidget()
+        self.view_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self.view_tabs.setDocumentMode(True)
+        self.view_tabs.setTabsClosable(False)
+        
+        # Create blueprint view
         self.blueprint_view = BlueprintView()
-        splitter.addWidget(self.blueprint_view)
+        self.view_tabs.addTab(self.blueprint_view, "Blueprint View")
         
         # Create video preview
         self.video_preview = CCTVPreview()
-        splitter.addWidget(self.video_preview)
+        self.view_tabs.addTab(self.video_preview, "CCTV View")
         
-        # Set initial splitter sizes (60% blueprint, 40% video)
-        total_width = self.width()
-        splitter.setSizes([int(total_width * 0.6), int(total_width * 0.4)])
+        left_panel_layout.addWidget(self.view_tabs)
         
-        # Create side panel with fixed width
-        side_panel = QWidget()
-        side_panel.setFixedWidth(300)  # Fixed width for side panel
-        side_layout = QVBoxLayout(side_panel)
-        side_layout.setContentsMargins(10, 10, 10, 10)  # Add some margins
+        # Create right panel with controls
+        right_panel = QWidget()
+        right_panel.setFixedWidth(350)
+        right_panel_layout = QVBoxLayout(right_panel)
+        right_panel_layout.setSpacing(10)
+        right_panel_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Add tool selection
-        tool_group = QGroupBox("Tools")
-        tool_layout = QVBoxLayout(tool_group)
-        tool_layout.setSpacing(5)  # Reduce spacing between tools
+        # Add logo/header
+        header = QLabel("Mall Blueprint Mapping Tool")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_font = QFont()
+        header_font.setBold(True)
+        header_font.setPointSize(14)
+        header.setFont(header_font)
+        right_panel_layout.addWidget(header)
         
-        self.select_tool_btn = QPushButton("Select")
-        self.camera_tool_btn = QPushButton("Add Camera")
-        self.store_tool_btn = QPushButton("Define Store")
-        self.calibrate_btn = QPushButton("Calibrate Camera")
+        # Create tab widget for right panel
+        control_tabs = QTabWidget()
+        control_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        
+        # Tools tab
+        tools_tab = QWidget()
+        tools_layout = QVBoxLayout(tools_tab)
+        
+        # Tools group
+        tools_group = QGroupBox("Mapping Tools")
+        tools_group_layout = QVBoxLayout(tools_group)
+        
+        # Create tool buttons with icons
+        self.select_tool_btn = self.create_tool_button("Select", "select.svg")
+        self.camera_tool_btn = self.create_tool_button("Add Camera", "camera.svg")
+        self.store_tool_btn = self.create_tool_button("Define Store", "store.svg")
+        self.calibrate_btn = self.create_tool_button("Calibrate Camera", "calibrate.svg")
         
         # Add tooltips
         self.select_tool_btn.setToolTip("Select and move cameras or stores")
@@ -66,36 +148,62 @@ class MainWindow(QMainWindow):
         self.store_tool_btn.setToolTip("Click to create store polygon, double-click to complete")
         self.calibrate_btn.setToolTip("Calibrate camera view with blueprint")
         
-        # Set fixed height for buttons
-        button_height = 30
-        for btn in [self.select_tool_btn, self.camera_tool_btn, 
-                   self.store_tool_btn, self.calibrate_btn]:
-            btn.setFixedHeight(button_height)
-            tool_layout.addWidget(btn)
+        # Add buttons to layout
+        tools_group_layout.addWidget(self.select_tool_btn)
+        tools_group_layout.addWidget(self.camera_tool_btn)
+        tools_group_layout.addWidget(self.store_tool_btn)
+        tools_group_layout.addWidget(self.calibrate_btn)
         
-        # Add export blueprint button below tools
-        self.export_blueprint_btn = QPushButton("Export Blueprint")
-        self.export_blueprint_btn.setFixedHeight(button_height)
+        # Export button
+        self.export_blueprint_btn = self.create_tool_button("Export Blueprint", "export.svg")
         self.export_blueprint_btn.clicked.connect(self.export_data)
-        tool_layout.addWidget(self.export_blueprint_btn)
+        tools_group_layout.addWidget(self.export_blueprint_btn)
         
-        # Add help text with scroll area
-        help_group = QGroupBox("Help")
-        help_layout = QVBoxLayout(help_group)
+        tools_layout.addWidget(tools_group)
         
+        # Status group
+        status_group = QGroupBox("Mapping Status")
+        status_layout = QVBoxLayout(status_group)
+        
+        self.status_label = QLabel("No blueprint loaded")
+        self.status_label.setWordWrap(True)
+        status_layout.addWidget(self.status_label)
+        
+        self.camera_count_label = QLabel("Cameras: 0")
+        status_layout.addWidget(self.camera_count_label)
+        
+        self.store_count_label = QLabel("Stores: 0 (0 mapped)")
+        status_layout.addWidget(self.store_count_label)
+        
+        tools_layout.addWidget(status_group)
+        tools_layout.addStretch()
+        
+        # Help tab
+        help_tab = QWidget()
+        help_layout = QVBoxLayout(help_tab)
+        
+        # Create scroll area for help content
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        
+        help_content = QWidget()
+        help_content_layout = QVBoxLayout(help_content)
+        
+        # Help text with improved formatting
         help_text = QTextEdit()
         help_text.setReadOnly(True)
         help_text.setHtml("""
+            <h2 style="color: #2a5caa;">Mall Blueprint Mapping Tool</h2>
             <h3>How to Use This Tool</h3>
             <ol>
-                <li><b>Load Blueprint</b>
+                <li><b style="color: #2a5caa;">Load Blueprint</b>
                     <ul>
                         <li>Click "Load Blueprint" in the toolbar</li>
                         <li>Select your mall blueprint image</li>
                         <li>The image should be clear and show store boundaries</li>
                     </ul>
                 </li>
-                <li><b>Add Cameras</b>
+                <li><b style="color: #2a5caa;">Add Cameras</b>
                     <ul>
                         <li>Click the "Add Camera" tool</li>
                         <li>Click on the blueprint where each camera is located</li>
@@ -103,7 +211,7 @@ class MainWindow(QMainWindow):
                         <li>The red cone shows the camera's field of view</li>
                     </ul>
                 </li>
-                <li><b>Define Stores</b>
+                <li><b style="color: #2a5caa;">Define Stores</b>
                     <ul>
                         <li>Click the "Define Store" tool</li>
                         <li>Click to create polygon points around each store</li>
@@ -111,7 +219,7 @@ class MainWindow(QMainWindow):
                         <li>Enter store name and category when prompted</li>
                     </ul>
                 </li>
-                <li><b>Calibrate Camera View</b>
+                <li><b style="color: #2a5caa;">Calibrate Camera View</b>
                     <ul>
                         <li>Load CCTV footage from a camera</li>
                         <li>Click "Calibrate Camera"</li>
@@ -121,49 +229,37 @@ class MainWindow(QMainWindow):
                     </ul>
                 </li>
             </ol>
+            <h3>Tips for Best Results</h3>
+            <ul>
+                <li>Use high-resolution blueprint images for better accuracy</li>
+                <li>When calibrating, choose points that are clearly visible in both views</li>
+                <li>For stores, include the entire retail space in your polygon</li>
+                <li>Save your work frequently using the Export Blueprint option</li>
+            </ul>
         """)
         
-        help_layout.addWidget(help_text)
+        help_content_layout.addWidget(help_text)
+        scroll_area.setWidget(help_content)
+        help_layout.addWidget(scroll_area)
         
-        # Add groups to side layout
-        side_layout.addWidget(tool_group)
-        side_layout.addWidget(help_group)
+        # Add tabs to control panel
+        control_tabs.addTab(tools_tab, "Tools")
+        control_tabs.addTab(help_tab, "Help")
         
-        # Add widgets to main layout with proper proportions
-        layout.addWidget(splitter, stretch=60)  # 60% of space
-        layout.addWidget(side_panel, stretch=40)  # 40% of space
+        right_panel_layout.addWidget(control_tabs)
         
-        # Create toolbar
-        toolbar = QToolBar()
-        toolbar.setMovable(False)  # Prevent toolbar from being moved
-        self.addToolBar(toolbar)
+        # Add panels to main splitter
+        main_splitter.addWidget(left_panel)
+        main_splitter.addWidget(right_panel)
         
-        # Add toolbar actions with tooltips
-        load_blueprint_action = QAction("Load Blueprint", self)
-        load_blueprint_action.setToolTip("Load a mall blueprint image")
-        load_blueprint_action.triggered.connect(self.load_blueprint)
+        # Set initial splitter sizes
+        main_splitter.setSizes([self.width() - 350, 350])
         
-        load_video_action = QAction("Load CCTV", self)
-        load_video_action.setToolTip("Load CCTV footage for testing")
-        load_video_action.triggered.connect(self.load_video)
+        # Add splitter to main layout
+        main_layout.addWidget(main_splitter)
         
-        load_mapping_action = QAction("Load Mapping", self)
-        load_mapping_action.setToolTip("Load previously exported mapping data")
-        load_mapping_action.triggered.connect(self.load_mapping_data)
-        
-        export_video_action = QAction("Export Video", self)
-        export_video_action.setToolTip("Export processed video with store boundaries and person detection")
-        export_video_action.triggered.connect(self.export_video)
-        
-        export_log_action = QAction("Export Movement Log", self)
-        export_log_action.setToolTip("Export person movement log")
-        export_log_action.triggered.connect(self.export_movement_log)
-        
-        toolbar.addAction(load_blueprint_action)
-        toolbar.addAction(load_video_action)
-        toolbar.addAction(load_mapping_action)
-        toolbar.addAction(export_video_action)
-        toolbar.addAction(export_log_action)
+        # Create enhanced toolbar
+        self.create_toolbar()
         
         # Create status bar
         self.statusBar = QStatusBar()
@@ -179,12 +275,110 @@ class MainWindow(QMainWindow):
         self.blueprint_view.calibration_points_selected.connect(self.on_blueprint_calibration_points)
         self.video_preview.calibration_points_selected.connect(self.on_video_calibration_points)
         
+        # Connect blueprint view signals to update status
+        self.blueprint_view.image_loaded.connect(self.update_status)
+        self.blueprint_view.camera_added.connect(self.update_status)
+        self.blueprint_view.store_added.connect(self.update_status)
+        
         # Create processor
         self.processor = FullBlueprintProcessor()
         
         # Add calibration state tracking
         self.calibration_blueprint_points = None
-        self.current_calibration_store = None  # Track which store is being calibrated
+        self.current_calibration_store = None
+        
+        # Update initial status
+        self.update_status()
+
+    def create_tool_button(self, text, icon_name=None):
+        """Create a styled tool button with optional icon"""
+        button = QPushButton(text)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button.setMinimumHeight(40)
+        
+        if icon_name:
+            # Try to load icon (fallback to text if not found)
+            icon_path = os.path.join("assets", "icons", icon_name)
+            if os.path.exists(icon_path):
+                button.setIcon(QIcon(icon_path))
+                button.setIconSize(QSize(24, 24))
+        
+        return button
+
+    def create_toolbar(self):
+        """Create enhanced toolbar with icons and tooltips"""
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setIconSize(QSize(24, 24))
+        toolbar.setMovable(False)
+        self.addToolBar(toolbar)
+        
+        # Create actions with icons
+        actions = [
+            ("Load Blueprint", "blueprint.svg", "Load a mall blueprint image", self.load_blueprint),
+            ("Load CCTV", "cctv.svg", "Load CCTV footage for testing", self.load_video),
+            ("Load Mapping", "import.svg", "Load previously exported mapping data", self.load_mapping_data),
+            ("Export Video", "video_export.svg", "Export processed video with store boundaries and person detection", self.export_video),
+            ("Export Log", "log_export.svg", "Export person movement log", self.export_movement_log),
+        ]
+        
+        for text, icon, tooltip, callback in actions:
+            action = QAction(text, self)
+            action.setToolTip(tooltip)
+            icon_path = os.path.join("assets", "icons", icon)
+            if os.path.exists(icon_path):
+                action.setIcon(QIcon(icon_path))
+            action.triggered.connect(callback)
+            toolbar.addAction(action)
+        
+        # Add separator
+        toolbar.addSeparator()
+        
+        # Add quick help button
+        help_action = QAction("Quick Help", self)
+        help_action.setToolTip("Show quick help reference")
+        help_action.setIcon(QIcon.fromTheme("help-contents"))
+        help_action.triggered.connect(self.show_quick_help)
+        toolbar.addAction(help_action)
+
+    def update_status(self):
+        """Update the status labels based on current state"""
+        if self.blueprint_view.blueprint_image is not None:
+            self.status_label.setText(f"Blueprint loaded: {os.path.basename(self.blueprint_view.blueprint_path)}")
+        else:
+            self.status_label.setText("No blueprint loaded")
+        
+        camera_count = len(self.blueprint_view.cameras)
+        self.camera_count_label.setText(f"Cameras: {camera_count}")
+        
+        store_count = len(self.blueprint_view.stores)
+        mapped_count = len(self.blueprint_view.mapped_stores)
+        self.store_count_label.setText(f"Stores: {store_count} ({mapped_count} mapped)")
+
+    def show_quick_help(self):
+        """Show a quick help dialog"""
+        help_dialog = QMessageBox(self)
+        help_dialog.setWindowTitle("Quick Help")
+        help_dialog.setIcon(QMessageBox.Icon.Information)
+        help_dialog.setTextFormat(Qt.TextFormat.RichText)
+        help_dialog.setText("""
+            <h3>Keyboard Shortcuts</h3>
+            <ul>
+                <li><b>Ctrl+O</b>: Load blueprint</li>
+                <li><b>Ctrl+V</b>: Load CCTV video</li>
+                <li><b>Ctrl+S</b>: Save mapping data</li>
+                <li><b>Esc</b>: Cancel current tool</li>
+                <li><b>Delete</b>: Remove selected item</li>
+            </ul>
+            <h3>Tool Tips</h3>
+            <ul>
+                <li>Right-click on items for context menu</li>
+                <li>Double-click stores to edit properties</li>
+                <li>Drag cameras to adjust their position</li>
+                <li>Drag camera direction line to adjust view angle</li>
+            </ul>
+        """)
+        help_dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        help_dialog.exec()
 
     def export_data(self):
         """Export the mapping data"""
@@ -404,6 +598,7 @@ class MainWindow(QMainWindow):
         if file_path:
             if self.blueprint_view.load_image(file_path):
                 self.statusBar.showMessage(f"Loaded blueprint: {file_path}")
+                self.update_status()
             else:
                 QMessageBox.critical(self, "Error", "Failed to load blueprint image")
 
@@ -416,6 +611,8 @@ class MainWindow(QMainWindow):
         if file_path:
             if self.video_preview.load_video(file_path):
                 self.statusBar.showMessage(f"Loaded video: {file_path}")
+                # Switch to video tab
+                self.view_tabs.setCurrentIndex(1)
             else:
                 QMessageBox.critical(self, "Error", "Failed to load video file")
 
@@ -489,6 +686,7 @@ class MainWindow(QMainWindow):
             self.blueprint_view.update()
             self.video_preview.update()
             self.statusBar.showMessage(f"Loaded mapping data from: {file_path}")
+            self.update_status()
             
             # Show summary
             QMessageBox.information(self, "Mapping Data Loaded",
@@ -572,6 +770,18 @@ class MainWindow(QMainWindow):
 
     def on_blueprint_calibration_points(self, points):
         """Handle blueprint calibration points selection"""
+        if not points or len(points) != 4:
+            QMessageBox.warning(self, "Error", "Please select exactly 4 points for calibration")
+            return
+            
+        # Verify points form a reasonable quadrilateral
+        points_array = np.array(points)
+        if not self._verify_calibration_points(points_array):
+            QMessageBox.warning(self, "Error", 
+                "Selected points do not form a valid quadrilateral.\n"
+                "Please select points that form a proper rectangle around the store.")
+            return
+            
         self.calibration_blueprint_points = points
         self.statusBar.showMessage(
             "Step 2: Now click the same 4 points in the video in the same order "
@@ -580,39 +790,99 @@ class MainWindow(QMainWindow):
 
     def on_video_calibration_points(self, points):
         """Handle video calibration points selection"""
+        if not points or len(points) != 4:
+            QMessageBox.warning(self, "Error", "Please select exactly 4 points for calibration")
+            return
+            
         if self.calibration_blueprint_points is None or self.current_calibration_store is None:
+            QMessageBox.warning(self, "Error", "Blueprint calibration points not set. Please start over.")
+            return
+            
+        # Verify points form a reasonable quadrilateral
+        points_array = np.array(points)
+        if not self._verify_calibration_points(points_array):
+            QMessageBox.warning(self, "Error", 
+                "Selected points do not form a valid quadrilateral.\n"
+                "Please select points that form a proper rectangle around the store.")
             return
         
-        # Calculate perspective transform for this specific store
-        if self.video_preview.calculate_perspective_transform(
-            self.calibration_blueprint_points, points, self.current_calibration_store):
-            
-            # Update mapping status for the current store only
-            self.blueprint_view.mapped_stores.add(self.current_calibration_store)
-            
-            store_name = self.blueprint_view.stores[self.current_calibration_store]['name']
-            self.statusBar.showMessage(f"Camera calibration complete - {store_name} mapped")
-            
-            # Show transformation details
-            QMessageBox.information(self, "Calibration Complete", 
-                f"Camera calibration successful!\n\n"
-                f"Store '{store_name}' has been mapped to the video view.\n\n"
-                f"Each store now has its own perspective transformation, ensuring correct positioning "
-                f"relative to other stores in the CCTV view.\n\n"
-                f"You can now test the mapping to verify the store boundaries are correctly positioned.")
-        else:
-            QMessageBox.warning(self, "Error", 
-                "Calibration failed. Please try again, making sure to:\n\n"
+        try:
+            # Calculate perspective transform for this specific store
+            if self.video_preview.calculate_perspective_transform(
+                self.calibration_blueprint_points, points, self.current_calibration_store):
+                
+                # Update mapping status for the current store only
+                self.blueprint_view.mapped_stores.add(self.current_calibration_store)
+                
+                store_name = self.blueprint_view.stores[self.current_calibration_store]['name']
+                self.statusBar.showMessage(f"Camera calibration complete - {store_name} mapped")
+                self.update_status()
+                
+                # Show transformation details
+                QMessageBox.information(self, "Calibration Complete", 
+                    f"Camera calibration successful!\n\n"
+                    f"Store '{store_name}' has been mapped to the video view.\n\n"
+                    f"Each store now has its own perspective transformation, ensuring correct positioning "
+                    f"relative to other stores in the CCTV view.\n\n"
+                    f"You can now test the mapping to verify the store boundaries are correctly positioned.")
+            else:
+                raise ValueError("Failed to calculate perspective transform")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", 
+                f"Calibration failed: {str(e)}\n\n"
+                "Please try again, making sure to:\n"
                 "1. Click points in the correct order (top-left, top-right, bottom-right, bottom-left)\n"
                 "2. Select points that form a proper rectangle around the stores\n"
                 "3. Ensure the points in the video correspond to the same locations as in the blueprint")
+        finally:
+            # Reset calibration mode
+            self.blueprint_view.set_tool("select")
+            self.video_preview.set_calibration_mode(False)
+            self.calibration_blueprint_points = None
+            self.current_calibration_store = None
+            self.blueprint_view.update()
+
+    def _verify_calibration_points(self, points):
+        """Verify that the calibration points form a reasonable quadrilateral"""
+        if len(points) != 4:
+            return False
+            
+        # Convert to numpy array if not already
+        points = np.array(points)
         
-        # Reset calibration mode
-        self.blueprint_view.set_tool("select")
-        self.video_preview.set_calibration_mode(False)
-        self.calibration_blueprint_points = None
-        self.current_calibration_store = None
-        self.blueprint_view.update()
+        # Calculate distances between consecutive points
+        distances = []
+        for i in range(4):
+            j = (i + 1) % 4
+            dist = np.linalg.norm(points[i] - points[j])
+            distances.append(dist)
+            
+        # Check if any side is too short (less than 10 pixels)
+        if min(distances) < 10:
+            return False
+            
+        # Check if the quadrilateral is too skewed
+        # Calculate angles between consecutive sides
+        angles = []
+        for i in range(4):
+            j = (i + 1) % 4
+            k = (i + 2) % 4
+            v1 = points[j] - points[i]
+            v2 = points[k] - points[j]
+            # Normalize vectors
+            v1 = v1 / np.linalg.norm(v1)
+            v2 = v2 / np.linalg.norm(v2)
+            # Calculate angle
+            cos_angle = np.clip(np.dot(v1, v2), -1.0, 1.0)
+            angle = np.arccos(cos_angle) * 180 / np.pi
+            angles.append(angle)
+            
+        # Check if any angle is too acute (less than 30 degrees) or too obtuse (more than 150 degrees)
+        if min(angles) < 30 or max(angles) > 150:
+            return False
+            
+        return True
 
 
 class CalibrationDialog(QMessageBox):

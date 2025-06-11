@@ -8,6 +8,9 @@ class BlueprintView(QWidget):
     camera_placed = pyqtSignal(str, int, int, float)  # camera_id, x, y, orientation
     store_defined = pyqtSignal(str, list)  # store_id, polygon_points
     calibration_points_selected = pyqtSignal(list)  # List of (x, y) points
+    image_loaded = pyqtSignal()  # Signal emitted when an image is loaded
+    camera_added = pyqtSignal()  # Signal emitted when a camera is added
+    store_added = pyqtSignal()  # Signal emitted when a store is added
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,6 +66,9 @@ class BlueprintView(QWidget):
         
         # Update the widget size to match the image
         self.updateGeometry()
+        
+        # Emit signal that image was loaded
+        self.image_loaded.emit()
         
         return True
     
@@ -231,6 +237,7 @@ class BlueprintView(QWidget):
                 "fov_range": 100  # Default range in pixels
             }
             self.camera_placed.emit(camera_id, x, y, 0)
+            self.camera_added.emit()  # Emit camera added signal
             self.update()
         
         elif self.current_tool == "store":
@@ -308,6 +315,7 @@ class BlueprintView(QWidget):
                     "category": store_category
                 }
                 self.store_defined.emit(store_id, self.drawing_points)
+                self.store_added.emit()  # Emit store added signal
                 self.drawing_points = []
                 self.update()
             else:
