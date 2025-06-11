@@ -22,7 +22,7 @@ SNAPSHOT_UUID = "98e87943-e4a1-88cc-743b-7737c1514f04"
 BLOB_URL = "blob:https://190.116.49.5/b0556aba-5d21-4404-83cf-521b56cf91f4"
 
 # Create snapshots directory
-SNAPSHOTS_DIR = "snapshots"
+SNAPSHOTS_DIR = "test_scripts/snapshot_download_test/snapshots"
 if not os.path.exists(SNAPSHOTS_DIR):
     os.makedirs(SNAPSHOTS_DIR)
     print(f"[+] Created directory: {SNAPSHOTS_DIR}")
@@ -128,7 +128,7 @@ def main():
             if count % 10 == 0:
                 print(f"[INFO] Captured {success_count} out of {count - 1} attempts")
 
-            time.sleep(1)
+            time.sleep(5)
     except KeyboardInterrupt:
         print(f"\n[!] Stopped by user. Total successful captures: {success_count}")
 

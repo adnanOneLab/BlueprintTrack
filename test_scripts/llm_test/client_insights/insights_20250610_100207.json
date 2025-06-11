@@ -1,0 +1,230 @@
+[
+  {
+    "user_id": "D404WT50",
+    "analysis_date": "2025-06-10T10:02:03.504018",
+    "customer_segment": "Fashion-conscious, frequent shopper with high interest in beauty products and coffee",
+    "confidence_score": 85,
+    "interest_recommendations": [
+      {
+        "interest": "Fashion",
+        "reason": "visits clothing stores frequently and spends 30 minutes per visit"
+      },
+      {
+        "interest": "Beauty Products",
+        "reason": "matches current interests"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Premium Fashion",
+        "reason": "matches spending pattern and frequent visits",
+        "priority": "high"
+      },
+      {
+        "store_category": "Beauty Supply",
+        "reason": "matches current interests",
+        "priority": "medium"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekend afternoons"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "weekly"
+    },
+    "promotional_message": "Exclusive offer: 20% off on premium fashion brands and beauty products",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$150-200",
+      "recommended_offer_type": "percentage discount",
+      "target_categories": [
+        "fashion",
+        "beauty products"
+      ]
+    },
+    "behavioral_insights": [
+      "Visits stores 10 times a month",
+      "Spends 30 minutes per visit",
+      "Frequent and fast shopper",
+      "Price-conscious buyer"
+    ],
+    "next_actions": [
+      "Send weekend fashion deals and beauty product offers",
+      "Target with mobile app promotions and email marketing"
+    ]
+  },
+  {
+    "user_id": "Jane Smith",
+    "analysis_date": "2025-06-10T10:02:04.318957",
+    "customer_segment": "Engaged, Focused Fashion and Beauty Enthusiast",
+    "confidence_score": 85,
+    "interest_recommendations": [
+      {
+        "interest": "Fashion",
+        "reason": "visits clothing stores frequently"
+      },
+      {
+        "interest": "Beauty",
+        "reason": "frequent visits to beauty sections"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Fashion",
+        "reason": "matches spending pattern",
+        "priority": "high"
+      },
+      {
+        "store_category": "Beauty",
+        "reason": "browsing behavior suggests interest",
+        "priority": "high"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekends",
+        "afternoons"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "bi-weekly"
+    },
+    "promotional_message": "Exclusive 20% off on your next fashion purchase!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$120-180",
+      "recommended_offer_type": "percentage discount",
+      "target_categories": [
+        "fashion",
+        "beauty"
+      ]
+    },
+    "behavioral_insights": [
+      "Prefers weekend shopping",
+      "Spends 45+ minutes per visit",
+      "Focused on specific interests (fashion and beauty)"
+    ],
+    "next_actions": [
+      "Send weekend fashion deals",
+      "Target with mobile app promotions",
+      "Offer personalized beauty recommendations"
+    ]
+  },
+  {
+    "user_id": "JDOE123",
+    "analysis_date": "2025-06-10T10:02:05.123729",
+    "customer_segment": "Active Explorer, Frequent Visitor",
+    "confidence_score": 85,
+    "interest_recommendations": [
+      {
+        "interest": "Sportswear",
+        "reason": "visits sportswear stores frequently"
+      },
+      {
+        "interest": "Tech Gadgets",
+        "reason": "spends time in tech sections"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Sportswear",
+        "reason": "matches current interests",
+        "priority": "high"
+      },
+      {
+        "store_category": "Electronics",
+        "reason": "browsing behavior suggests interest",
+        "priority": "medium"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekend mornings",
+        "afternoons"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "bi-weekly"
+    },
+    "promotional_message": "Get ready for a summer of style with 15% off all sportswear!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$200-250",
+      "recommended_offer_type": "percentage discount",
+      "target_categories": [
+        "sportswear",
+        "electronics"
+      ]
+    },
+    "behavioral_insights": [
+      "Spends 1 hour 15 minutes per visit, indicating high engagement",
+      "Visits stores 3 days a month, indicating consistent shopping habits",
+      "Prefers sportswear and tech gadgets, indicating specific interests"
+    ],
+    "next_actions": [
+      "Send weekend sportswear deals to his email and app notifications",
+      "Target him with relevant product recommendations in-store"
+    ]
+  },
+  {
+    "user_id": "Mike Johnson",
+    "analysis_date": "2025-06-10T10:02:06.461768",
+    "customer_segment": "Tech Enthusiast, Occasional Browser",
+    "confidence_score": 85,
+    "interest_recommendations": [
+      {
+        "interest": "Gaming",
+        "reason": "visits tech stores frequently"
+      },
+      {
+        "interest": "Wearables",
+        "reason": "shows interest in tech gadgets"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Electronics",
+        "reason": "matches current interests",
+        "priority": "high"
+      },
+      {
+        "store_category": "Computer Accessories",
+        "reason": "browsing behavior suggests interest",
+        "priority": "medium"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekdays afternoons"
+      ],
+      "preferred_channels": [
+        "email",
+        "in-app notifications"
+      ],
+      "frequency": "bi-weekly"
+    },
+    "promotional_message": "Get exclusive deals on the latest tech gadgets!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$100-150",
+      "recommended_offer_type": "percentage discount",
+      "target_categories": [
+        "electronics",
+        "gadgets"
+      ]
+    },
+    "behavioral_insights": [
+      "Frequent visitor to tech stores",
+      "Spends significant time in-store",
+      "Potential for loyalty program membership"
+    ],
+    "next_actions": [
+      "Send targeted tech deals",
+      "Offer loyalty program membership"
+    ]
+  }
+]

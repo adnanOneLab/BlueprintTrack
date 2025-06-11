@@ -1,0 +1,324 @@
+[
+  {
+    "user_id": "D404WT50",
+    "analysis_date": "2025-06-10T11:49:34.186847",
+    "customer_segment": "Casual shopper with a focus on fashion and beauty products, with a preference for frequent short visits on weekends",
+    "confidence_score": 85,
+    "store_visit_insights": {
+      "shopping_style": "explorer",
+      "preferred_categories": [
+        "Fashion",
+        "Beauty Products"
+      ],
+      "loyalty_level": "low",
+      "price_sensitivity": "price-insensitive",
+      "visit_pattern": "frequent short visits"
+    },
+    "interest_recommendations": [
+      {
+        "interest": "Beauty Products",
+        "reason": "current interests",
+        "confidence": "high"
+      },
+      {
+        "interest": "Coffee",
+        "reason": "current interests",
+        "confidence": "medium"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Fashion",
+        "reason": "matches current shopping pattern",
+        "priority": "high"
+      },
+      {
+        "store_category": "Beauty Products",
+        "reason": "complements current lifestyle interests",
+        "priority": "medium"
+      }
+    ],
+    "cross_selling_opportunities": [],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekend afternoons"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "weekly",
+      "personalization_focus": "store-specific offers"
+    },
+    "promotional_message": "Get 10% off your next purchase at your favorite fashion store!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$100-150",
+      "recommended_offer_type": "store-specific discount",
+      "target_categories": [
+        "Fashion",
+        "Beauty Products"
+      ],
+      "upselling_potential": "medium"
+    },
+    "behavioral_insights": [
+      "Store loyalty insights",
+      "Shopping frequency patterns",
+      "Category preferences",
+      "Time spending behavior"
+    ],
+    "next_actions": [
+      "Send targeted offers for favorite store categories",
+      "Introduce similar stores in preferred categories",
+      "Create loyalty program for frequently visited stores"
+    ]
+  },
+  {
+    "user_id": "Jane Smith",
+    "analysis_date": "2025-06-10T11:49:37.510653",
+    "customer_segment": "Frequent beauty shopper with a focus on specific interests, likely to be attracted to luxury goods and high-end fashion",
+    "confidence_score": 85,
+    "store_visit_insights": {
+      "shopping_style": "focused",
+      "preferred_categories": [
+        "Beauty"
+      ],
+      "loyalty_level": "high",
+      "price_sensitivity": "high",
+      "visit_pattern": "frequent short visits"
+    },
+    "interest_recommendations": [
+      {
+        "interest": "Fashion",
+        "reason": "visits clothing stores frequently",
+        "confidence": "high"
+      },
+      {
+        "interest": "Luxury Goods",
+        "reason": "shows interest in high-end fashion and beauty products",
+        "confidence": "medium"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Premium Fashion",
+        "reason": "matches current shopping pattern at similar stores",
+        "priority": "high"
+      },
+      {
+        "store_category": "Beauty Supply",
+        "reason": "complements current lifestyle interests",
+        "priority": "medium"
+      }
+    ],
+    "cross_selling_opportunities": [
+      {
+        "from_category": "Fashion",
+        "to_category": "Accessories",
+        "reason": "natural complement to current shopping behavior"
+      },
+      {
+        "from_category": "Beauty",
+        "to_category": "Skincare",
+        "reason": "frequently purchased together"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekend afternoons based on visit patterns"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "weekly",
+      "personalization_focus": "store-specific offers vs category-wide promotions"
+    },
+    "promotional_message": "Exclusive offer for your favorite beauty store, Sephora!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$150-200",
+      "recommended_offer_type": "store-specific discount",
+      "target_categories": [
+        "Beauty",
+        "Fashion"
+      ],
+      "upselling_potential": "high"
+    },
+    "behavioral_insights": [
+      "Store loyalty insights",
+      "Shopping frequency patterns",
+      "Category preferences",
+      "Time spending behavior"
+    ],
+    "next_actions": [
+      "Send targeted offers for favorite store categories",
+      "Introduce similar stores in preferred categories",
+      "Create loyalty program for frequently visited stores"
+    ]
+  },
+  {
+    "user_id": "A101XT20",
+    "analysis_date": "2025-06-10T11:49:42.328155",
+    "customer_segment": "Frequent explorer of sportswear and tech gadgets",
+    "confidence_score": 85,
+    "store_visit_insights": {
+      "shopping_style": "Focused",
+      "preferred_categories": [
+        "Sportswear"
+      ],
+      "loyalty_level": "High",
+      "price_sensitivity": "Moderate",
+      "visit_pattern": "Frequent short visits"
+    },
+    "interest_recommendations": [
+      {
+        "interest": "Fashion",
+        "reason": "visits clothing stores frequently",
+        "confidence": "high"
+      },
+      {
+        "interest": "Technology",
+        "reason": "spends time in electronics section",
+        "confidence": "medium"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Premium Fashion",
+        "reason": "matches current shopping pattern at similar stores",
+        "priority": "high"
+      },
+      {
+        "store_category": "Home Decor",
+        "reason": "complements current lifestyle interests",
+        "priority": "medium"
+      }
+    ],
+    "cross_selling_opportunities": [
+      {
+        "from_category": "Fashion",
+        "to_category": "Accessories",
+        "reason": "natural complement to current shopping behavior"
+      },
+      {
+        "from_category": "Electronics",
+        "to_category": "Tech Accessories",
+        "reason": "frequently purchased together"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekend afternoons based on visit patterns"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "weekly",
+      "personalization_focus": "store-specific offers vs category-wide promotions"
+    },
+    "promotional_message": "Exclusive offer on your favorite sportswear brands!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$150-200",
+      "recommended_offer_type": "store-specific discount vs category discount",
+      "target_categories": [
+        "fashion",
+        "accessories"
+      ],
+      "upselling_potential": "High"
+    },
+    "behavioral_insights": [
+      "Store loyalty insights",
+      "Shopping frequency patterns",
+      "Category preferences",
+      "Time spending behavior"
+    ],
+    "next_actions": [
+      "Send targeted offers for favorite store categories",
+      "Introduce similar stores in preferred categories",
+      "Create loyalty program for frequently visited stores"
+    ]
+  },
+  {
+    "user_id": "Mike Johnson",
+    "analysis_date": "2025-06-10T11:49:44.150828",
+    "customer_segment": "Tech-savvy shopper with a focus on electronics and gaming",
+    "confidence_score": 85,
+    "store_visit_insights": {
+      "shopping_style": "focused",
+      "preferred_categories": [
+        "Electronics"
+      ],
+      "loyalty_level": "medium",
+      "price_sensitivity": "medium",
+      "visit_pattern": "frequent short visits"
+    },
+    "interest_recommendations": [
+      {
+        "interest": "Gaming",
+        "reason": "visits gaming stores frequently",
+        "confidence": "high"
+      },
+      {
+        "interest": "Wearables",
+        "reason": "shows interest in wearable technology",
+        "confidence": "medium"
+      }
+    ],
+    "store_recommendations": [
+      {
+        "store_category": "Gaming Stores",
+        "reason": "matches current shopping pattern at similar stores",
+        "priority": "high"
+      },
+      {
+        "store_category": "Wireless Earbuds",
+        "reason": "complements current lifestyle interests",
+        "priority": "medium"
+      }
+    ],
+    "cross_selling_opportunities": [
+      {
+        "from_category": "Electronics",
+        "to_category": "Gaming Accessories",
+        "reason": "natural complement to current shopping behavior"
+      },
+      {
+        "from_category": "Electronics",
+        "to_category": "Wearables",
+        "reason": "frequently purchased together"
+      }
+    ],
+    "engagement_strategy": {
+      "optimal_contact_times": [
+        "weekend afternoons based on visit patterns"
+      ],
+      "preferred_channels": [
+        "email",
+        "app notification"
+      ],
+      "frequency": "weekly",
+      "personalization_focus": "store-specific offers vs category-wide promotions"
+    },
+    "promotional_message": "Get exclusive offers on your favorite gaming accessories at our stores!",
+    "revenue_opportunity": {
+      "estimated_monthly_potential": "$150-200",
+      "recommended_offer_type": "store-specific discount vs category discount",
+      "target_categories": [
+        "Gaming",
+        "Electronics"
+      ],
+      "upselling_potential": "high"
+    },
+    "behavioral_insights": [
+      "Store loyalty insights",
+      "Shopping frequency patterns",
+      "Category preferences",
+      "Time spending behavior"
+    ],
+    "next_actions": [
+      "Send targeted offers for favorite store categories",
+      "Introduce similar stores in preferred categories",
+      "Create loyalty program for frequently visited stores"
+    ]
+  }
+]

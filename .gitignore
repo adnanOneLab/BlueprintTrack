@@ -10,3 +10,6 @@ body_images
 yolov8n.pt
 snapshots
 *.pt
+*.csv
+*.xlsx
+.env
