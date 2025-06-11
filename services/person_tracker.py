@@ -448,7 +448,6 @@ class PersonTracker:
         current_store = None
         
         for store_id, store in stores.items():
-            self.location = store["location"]
             if "video_polygon" in store and len(store["video_polygon"]) > 2:
                 if self.is_person_in_store(person['bbox'], store["video_polygon"]):
                     current_store = store_id
