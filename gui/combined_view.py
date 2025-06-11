@@ -88,7 +88,13 @@ class CombinedView(QWidget):
         """Get a title for this tab based on loaded content"""
         blueprint_name = os.path.basename(self.blueprint_view.blueprint_path) if hasattr(self.blueprint_view, 'blueprint_path') else "No Blueprint"
         video_name = os.path.basename(self.video_preview.video_path) if hasattr(self.video_preview, 'video_path') else "No Video"
-        return f"{blueprint_name} - {video_name}"
+        
+        # Get location from PersonTracker if available
+        location = "Unknown"
+        if hasattr(self.video_preview, 'person_tracker'):
+            location = self.video_preview.person_tracker.location
+        
+        return f"[{location}] {blueprint_name} - {video_name}"
         
     def cleanup(self):
         """Clean up resources when tab is closed"""

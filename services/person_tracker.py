@@ -8,6 +8,7 @@ class PersonTracker:
     def __init__(self):
         # Load YOLO model
         self.model = YOLO('yolo11n.pt')  # Using YOLOv11 nano model
+        self.location = "Unknown"  # Will be updated from stores mapping
         
         self.next_id = 1
         self.tracked_people = {}  # id -> {bbox, last_seen, current_store, history, confidence, timestamp, is_moving, position_history}
@@ -291,7 +292,7 @@ class PersonTracker:
                     state['last_state'] = 'moving'
                     state['state_persistence'] = self.movement_persistence
                     if self.debug_mode:
-                        print(f"Person {person_id}: State changed to MOVING")
+                        print(f"[{self.location}] Person {person_id}: State changed to MOVING")
                 else:
                     state['state_persistence'] -= 1
             else:
@@ -302,7 +303,7 @@ class PersonTracker:
                     state['last_state'] = 'idle'
                     state['state_persistence'] = self.idle_persistence
                     if self.debug_mode:
-                        print(f"Person {person_id}: State changed to IDLE")
+                        print(f"[{self.location}] Person {person_id}: State changed to IDLE")
                 else:
                     state['state_persistence'] -= 1
             else:
@@ -447,6 +448,7 @@ class PersonTracker:
         current_store = None
         
         for store_id, store in stores.items():
+            self.location = store["location"]
             if "video_polygon" in store and len(store["video_polygon"]) > 2:
                 if self.is_person_in_store(person['bbox'], store["video_polygon"]):
                     current_store = store_id
@@ -454,7 +456,7 @@ class PersonTracker:
                     if current_store != self.last_store.get(person_id):
                         entry_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
                         if self.debug_mode:
-                            print(f"Person {person_id} entered {store.get('name', 'Unknown')} at {entry_time}")
+                            print(f"[{self.location}] Person {person_id} entered {store.get('name', 'Unknown')} at {entry_time}")
                         
                         # Ensure history exists
                         if 'history' not in person:
@@ -476,6 +478,18 @@ class PersonTracker:
         """Update tracked people with new detections"""
         self.frame_counter = frame_number
         current_time = datetime.now()
+        
+        # Update location from mapping if available
+        # The location is at the root level of the mapping, not inside stores
+        if isinstance(stores, dict):
+            # Try to get location from root level
+            if "location" in stores:
+                self.location = stores["location"]
+            # If not found at root, try to get from first store (as fallback)
+            elif stores.get("stores") and isinstance(stores["stores"], dict):
+                first_store = next(iter(stores["stores"].values()), None)
+                if first_store and "location" in first_store:
+                    self.location = first_store["location"]
         
         # Filter detections by confidence
         detected_people = [p for p in detected_people if p.get('confidence', 0) >= self.min_confidence]

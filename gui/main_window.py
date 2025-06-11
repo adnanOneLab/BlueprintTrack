@@ -795,6 +795,7 @@ class MainWindow(QMainWindow):
             print(f"Loading mapping data from: {file_path}")
             print(f"Found {len(mapping_data.get('stores', {}))} stores")
             print(f"Found {len(mapping_data.get('cameras', {}))} cameras")
+            print(f"Location: {mapping_data.get('location', 'Not specified')}")
             
             # Load blueprint if path exists
             if mapping_data.get("blueprint", {}).get("image_path"):
@@ -805,14 +806,21 @@ class MainWindow(QMainWindow):
                             "Could not load original blueprint image. Using current blueprint if available.")
             
             # Load stores first (needed for mapping status)
-            self.get_current_view().blueprint_view.stores = {
+            stores_data = {
                 store_id: {
                     "name": store["name"],
                     "category": store.get("category", ""),
-                    "polygon": store["polygon"]
+                    "polygon": store["polygon"],
+                    "location": store.get("location", mapping_data.get("location", "Unknown"))  # Get location from store or root level
                 }
                 for store_id, store in mapping_data.get("stores", {}).items()
             }
+            
+            # Store location separately
+            location = mapping_data.get("location", "Unknown")
+            
+            # Update stores in blueprint view (without location at root level)
+            self.get_current_view().blueprint_view.stores = stores_data
             
             # Update mapped stores status
             self.get_current_view().blueprint_view.mapped_stores = {
@@ -841,8 +849,13 @@ class MainWindow(QMainWindow):
             else:
                 print("No perspective matrices found in mapping data")
             
-            # Copy stores to video preview
-            self.get_current_view().video_preview.stores = self.get_current_view().blueprint_view.stores.copy()
+            # Copy stores to video preview (without location at root level)
+            self.get_current_view().video_preview.stores = stores_data.copy()
+            
+            # Update PersonTracker's location if it exists
+            if hasattr(self.get_current_view().video_preview, 'person_tracker'):
+                self.get_current_view().video_preview.person_tracker.location = location
+                print(f"Updated PersonTracker location to: {location}")
             
             # Update UI
             self.get_current_view().blueprint_view.update()
@@ -853,6 +866,7 @@ class MainWindow(QMainWindow):
             # Show summary
             QMessageBox.information(self, "Mapping Data Loaded",
                 f"Successfully loaded mapping data:\n\n"
+                f"• Location: {location}\n"
                 f"• {len(self.get_current_view().blueprint_view.stores)} stores\n"
                 f"• {len(self.get_current_view().blueprint_view.cameras)} cameras\n"
                 f"• {len(self.get_current_view().blueprint_view.mapped_stores)} mapped stores\n"
