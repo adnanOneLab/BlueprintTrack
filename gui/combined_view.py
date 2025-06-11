@@ -86,12 +86,17 @@ class CombinedView(QWidget):
         
     def get_tab_title(self):
         """Get a title for this tab based on loaded content"""
-        blueprint_name = os.path.basename(self.blueprint_view.blueprint_path) if hasattr(self.blueprint_view, 'blueprint_path') else "No Blueprint"
-        video_name = os.path.basename(self.video_preview.video_path) if hasattr(self.video_preview, 'video_path') else "No Video"
+        # Safely get blueprint name
+        blueprint_path = getattr(self.blueprint_view, 'blueprint_path', None)
+        blueprint_name = os.path.basename(blueprint_path) if blueprint_path else "No Blueprint"
         
-        # Get location from PersonTracker if available
-        location = "Unknown"
-        if hasattr(self.video_preview, 'person_tracker'):
+        # Safely get video name
+        video_path = getattr(self.video_preview, 'video_path', None)
+        video_name = os.path.basename(video_path) if video_path else "No Video"
+        
+        # Get location from PersonTracker if available and stores are loaded
+        location = "No Mapping"
+        if hasattr(self.video_preview, 'person_tracker') and self.video_preview.stores:
             location = self.video_preview.person_tracker.location
         
         return f"[{location}] {blueprint_name} - {video_name}"
