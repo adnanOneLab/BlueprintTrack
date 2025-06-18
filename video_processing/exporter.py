@@ -30,6 +30,9 @@ class ExportMixin:
             # Enable AWS for export mode
             self.aws_service.set_export_mode(True)
             
+            # Enable export mode on person tracker for performance optimization
+            self.person_tracker.set_export_mode(True)
+            
             # Verify store polygons and calculate video polygons
             for store_id, store in self.stores.items():
                 if "polygon" not in store or len(store["polygon"]) < 3:
@@ -93,6 +96,22 @@ class ExportMixin:
             self.export_progress = 0
             self.frame_number = 0  # Reset frame counter
             
+            # Pre-calculate store polygon points and centroids for performance
+            store_polygon_data = {}
+            for store_id, store in self.stores.items():
+                if "video_polygon" in store and len(store["video_polygon"]) > 2:
+                    try:
+                        # Pre-calculate polygon points as numpy array
+                        points = np.array(store["video_polygon"], np.int32).reshape((-1, 1, 2))
+                        store_polygon_data[store_id] = {
+                            'points': points,
+                            'centroid_x': int(np.mean([p[0] for p in store["video_polygon"]])),
+                            'centroid_y': int(np.mean([p[1] for p in store["video_polygon"]])),
+                            'name': store.get("name", "")
+                        }
+                    except Exception as e:
+                        print(f"Error pre-calculating polygon data for store {store_id}: {str(e)}")
+            
             # Process each frame
             frame_count = 0
             processed_frames = 0
@@ -115,51 +134,52 @@ class ExportMixin:
                 try:
                     frame_draw = frame.copy()
                     
-                    # Draw store polygons
-                    for store_id, store in self.stores.items():
-                        if "video_polygon" in store and len(store["video_polygon"]) > 2:
+                    # Create a single overlay for all store polygons to reduce frame copies
+                    if store_polygon_data:
+                        overlay = frame_draw.copy()
+                        
+                        # Draw all store polygons on the overlay
+                        for store_id, polygon_data in store_polygon_data.items():
                             try:
-                                points = np.array(store["video_polygon"], np.int32).reshape((-1, 1, 2))
+                                points = polygon_data['points']
                                 
                                 # Draw filled semi-transparent polygon
-                                overlay = frame_draw.copy()
                                 cv2.fillPoly(overlay, [points], (0, 255, 0))
-                                cv2.addWeighted(overlay, 0.3, frame_draw, 0.7, 0, frame_draw)
                                 
                                 # Draw polygon outline
                                 cv2.polylines(frame_draw, [points], True, (0, 255, 0), 2)
                                 
                                 # Draw store name
-                                if "name" in store:
-                                    centroid_x = int(np.mean([p[0] for p in store["video_polygon"]]))
-                                    centroid_y = int(np.mean([p[1] for p in store["video_polygon"]]))
-                                    
-                                    text = store["name"]
+                                if polygon_data['name']:
+                                    text = polygon_data['name']
                                     font = cv2.FONT_HERSHEY_SIMPLEX
                                     font_scale = 1.3
                                     thickness = 2
                                     (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
                                     
                                     cv2.rectangle(frame_draw, 
-                                                (centroid_x - text_width//2 - 2, centroid_y - text_height//2 - 2),
-                                                (centroid_x + text_width//2 + 2, centroid_y + text_height//2 + 2),
+                                                (polygon_data['centroid_x'] - text_width//2 - 2, polygon_data['centroid_y'] - text_height//2 - 2),
+                                                (polygon_data['centroid_x'] + text_width//2 + 2, polygon_data['centroid_y'] + text_height//2 + 2),
                                                 (0, 0, 0), -1)
                                     
                                     cv2.putText(frame_draw, text,
-                                              (centroid_x - text_width//2, centroid_y + text_height//2),
+                                              (polygon_data['centroid_x'] - text_width//2, polygon_data['centroid_y'] + text_height//2),
                                               font, font_scale, (255, 255, 255), thickness)
                             except Exception as e:
                                 print(f"Error drawing store {store_id}: {str(e)}")
+                        
+                        # Apply the overlay with transparency once for all stores
+                        cv2.addWeighted(overlay, 0.3, frame_draw, 0.7, 0, frame_draw)
                     
                     # Process person and face detection
                     current_time = frame_count / fps
                     if self.aws_service.aws_enabled:
                         try:
-                            # Use YOLO for person detection and tracking
+                            # Use YOLO for person detection and tracking (with built-in frame skipping)
                             self.tracked_people = self.person_tracker.process_frame(frame, self.stores)
                             detection_count += len(self.tracked_people)
                             
-                            # Use AWS for face detection only
+                            # Use AWS for face detection only (currently disabled)
                             face_detections = self.aws_service.detect_faces(frame, current_time)
                             if face_detections:
                                 face_detection_count += len(face_detections)
@@ -275,6 +295,9 @@ class ExportMixin:
             # Disable AWS for preview mode
             self.aws_service.set_export_mode(False)
             
+            # Disable export mode on person tracker
+            self.person_tracker.set_export_mode(False)
+            
             # Restore video capture position
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
             self.update_frame()
@@ -300,6 +323,8 @@ class ExportMixin:
             self.export_progress = 0
             # Ensure AWS is disabled
             self.aws_service.set_export_mode(False)
+            # Disable export mode on person tracker
+            self.person_tracker.set_export_mode(False)
             # Restore video capture position on error
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
             self.status_message.emit(f"Error exporting video: {str(e)} (Elapsed time: {total_elapsed_time:.2f}s)")

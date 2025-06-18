@@ -3,6 +3,7 @@ from shapely.geometry import Polygon
 import numpy as np
 from ultralytics import YOLO
 import cv2
+import torch
 
 class PersonTracker:
     def __init__(self):
@@ -36,6 +37,10 @@ class PersonTracker:
             'persons': [],
             'objects': {}
         }
+        
+        # Export mode optimization
+        self.is_export_mode = False
+        self.export_frame_skip = 3  # More aggressive skipping during export
         
         # IMPROVED: CCTV-optimized movement thresholds
         self.motion_threshold = 2.0  # Decreased further for CCTV's lower frame rate
@@ -77,6 +82,14 @@ class PersonTracker:
         # Debugging flags
         self.debug_mode = True
         self.debug_movement = True
+
+    def set_export_mode(self, enabled):
+        """Enable/disable export mode for performance optimization"""
+        self.is_export_mode = enabled
+        if enabled:
+            print("PersonTracker: Export mode enabled - using aggressive frame skipping")
+        else:
+            print("PersonTracker: Export mode disabled - using normal frame processing")
 
     def detect_camera_jitter(self, movement_history):
         """Detect if movements are likely due to camera jitter/noise"""
@@ -613,16 +626,32 @@ class PersonTracker:
         if frame is None or frame.size == 0:
             return {'faces': [], 'persons': [], 'objects': {}}
         
-        # Run YOLO detection with optimized settings for accuracy
-        results = self.model(frame, 
-                        verbose=False,
-                        conf=self.min_confidence,
-                        iou=0.4,      # Slightly higher to reduce duplicate detections
-                        max_det=50,   # Reduced to focus on best detections
-                        classes=[self.PERSON_CLASS],
-                        device='cpu',  # Ensure consistent processing
-                        half=False     # Use full precision for better accuracy
-                        )[0]
+        # Run YOLO detection with optimized settings for performance
+        try:
+            # Try to use GPU if available, fallback to CPU
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            
+            results = self.model(frame, 
+                            verbose=False,
+                            conf=self.min_confidence,
+                            iou=0.4,      # Slightly higher to reduce duplicate detections
+                            max_det=20,   # Reduced for better performance
+                            classes=[self.PERSON_CLASS],
+                            device=device,  # Use GPU if available
+                            half=True if device == 'cuda' else False  # Use half precision on GPU
+                            )[0]
+        except Exception as e:
+            # Fallback to CPU if GPU fails
+            print(f"GPU detection failed, falling back to CPU: {str(e)}")
+            results = self.model(frame, 
+                            verbose=False,
+                            conf=self.min_confidence,
+                            iou=0.4,
+                            max_det=20,
+                            classes=[self.PERSON_CLASS],
+                            device='cpu',
+                            half=False
+                            )[0]
         
         detections = {
             'faces': [],
@@ -680,7 +709,7 @@ class PersonTracker:
         valid_detections.sort(key=lambda x: x['confidence'], reverse=True)
         
         # Add to results
-        for detection in valid_detections[:20]:  # Limit to top 20 detections
+        for detection in valid_detections[:15]:  # Reduced limit for better performance
             detections['persons'].append({
                 'bbox': detection['bbox'],
                 'confidence': detection['confidence']
@@ -698,8 +727,11 @@ class PersonTracker:
         if frame is None or frame.size == 0:
             return self.tracked_people
             
-        # Skip frames based on frame_skip setting
-        if self.frame_counter % self.frame_skip != 0:
+        # Use export mode frame skipping if in export mode
+        current_frame_skip = self.export_frame_skip if self.is_export_mode else self.frame_skip
+        
+        # Skip frames based on current frame_skip setting
+        if self.frame_counter % current_frame_skip != 0:
             self.frame_counter += 1
             return self.tracked_people
             

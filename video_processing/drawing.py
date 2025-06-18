@@ -195,6 +195,8 @@ class DrawingMixin:
         if hasattr(self, 'debug_mode') and self.debug_mode:
             print(f"Drawing {len(self.stores)} stores in test mode")
         
+        # Pre-calculate all store polygon data for performance
+        store_polygon_data = []
         for store_id, store in self.stores.items():
             if "video_polygon" in store and len(store["video_polygon"]) > 2:
                 try:
@@ -206,38 +208,60 @@ class DrawingMixin:
                         video_polygon.append((scaled_x, scaled_y))
                     
                     if len(video_polygon) > 2:
-                        # Draw filled semi-transparent polygon
-                        painter.setPen(Qt.PenStyle.NoPen)
-                        painter.setBrush(QColor(0, 255, 0, 50))  # Semi-transparent green
-                        painter.drawPolygon([QPoint(x, y) for x, y in video_polygon])
+                        # Pre-calculate centroid
+                        centroid_x = int(np.mean([p[0] for p in video_polygon]))
+                        centroid_y = int(np.mean([p[1] for p in video_polygon]))
                         
-                        # Draw polygon outline
-                        painter.setPen(QPen(QColor(0, 255, 0), 2))
-                        painter.setBrush(Qt.BrushStyle.NoBrush)
-                        for i in range(len(video_polygon) - 1):
-                            painter.drawLine(video_polygon[i][0], video_polygon[i][1],
-                                           video_polygon[i+1][0], video_polygon[i+1][1])
-                        painter.drawLine(video_polygon[-1][0], video_polygon[-1][1],
-                                       video_polygon[0][0], video_polygon[0][1])
-                        
-                        # Draw store name
-                        if "name" in store:
-                            centroid_x = int(np.mean([p[0] for p in video_polygon]))
-                            centroid_y = int(np.mean([p[1] for p in video_polygon]))
-                            painter.setFont(QFont("Arial", 20, QFont.Weight.Bold))
-                            
-                            # Draw text background
-                            text_rect = painter.fontMetrics().boundingRect(store["name"])
-                            text_rect.moveCenter(QPoint(centroid_x, centroid_y))
-                            text_rect.adjust(-5, -2, 5, 2)
-                            painter.fillRect(text_rect, QColor(0, 0, 0, 180))
-                            
-                            # Draw text
-                            painter.setPen(QColor(255, 255, 255))
-                            painter.drawText(centroid_x, centroid_y, store["name"])
+                        store_polygon_data.append({
+                            'polygon': video_polygon,
+                            'centroid_x': centroid_x,
+                            'centroid_y': centroid_y,
+                            'name': store.get("name", "")
+                        })
                 
                 except Exception as e:
                     # Handle any errors that occur during polygon drawing
                     if hasattr(self, 'debug_mode') and self.debug_mode:
-                        print(f"Error drawing store {store_id}: {str(e)}")
+                        print(f"Error pre-calculating polygon data for store {store_id}: {str(e)}")
                     # Continue with next store instead of crashing
+                    continue
+        
+        # Draw all store polygons using pre-calculated data
+        for polygon_data in store_polygon_data:
+            try:
+                video_polygon = polygon_data['polygon']
+                
+                # Draw filled semi-transparent polygon
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(0, 255, 0, 50))  # Semi-transparent green
+                painter.drawPolygon([QPoint(x, y) for x, y in video_polygon])
+                
+                # Draw polygon outline
+                painter.setPen(QPen(QColor(0, 255, 0), 2))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                for i in range(len(video_polygon) - 1):
+                    painter.drawLine(video_polygon[i][0], video_polygon[i][1],
+                                   video_polygon[i+1][0], video_polygon[i+1][1])
+                painter.drawLine(video_polygon[-1][0], video_polygon[-1][1],
+                               video_polygon[0][0], video_polygon[0][1])
+                
+                # Draw store name
+                if polygon_data['name']:
+                    painter.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+                    
+                    # Draw text background
+                    text_rect = painter.fontMetrics().boundingRect(polygon_data['name'])
+                    text_rect.moveCenter(QPoint(polygon_data['centroid_x'], polygon_data['centroid_y']))
+                    text_rect.adjust(-5, -2, 5, 2)
+                    painter.fillRect(text_rect, QColor(0, 0, 0, 180))
+                    
+                    # Draw text
+                    painter.setPen(QColor(255, 255, 255))
+                    painter.drawText(polygon_data['centroid_x'], polygon_data['centroid_y'], polygon_data['name'])
+            
+            except Exception as e:
+                # Handle any errors that occur during polygon drawing
+                if hasattr(self, 'debug_mode') and self.debug_mode:
+                    print(f"Error drawing store polygon: {str(e)}")
+                # Continue with next store instead of crashing
+                continue
