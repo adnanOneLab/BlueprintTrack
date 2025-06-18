@@ -30,7 +30,7 @@ class PersonTracker:
         self.PERSON_CLASS = 0
         
         # Processing control
-        self.frame_skip = 1
+        self.frame_skip = 20
         self.last_results = {
             'faces': [], 
             'persons': [],

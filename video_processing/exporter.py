@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import time
 
 class ExportMixin:
     def _init_export(self):
@@ -12,6 +13,9 @@ class ExportMixin:
         if not self.video_capture or self.current_frame is None:
             self.status_message.emit("Error: No video loaded")
             return False
+        
+        # Start timing the export process
+        export_start_time = time.time()
         
         try:
             # Verify AWS and stores setup
@@ -250,12 +254,17 @@ class ExportMixin:
                     continue
             
             # Final export statistics
+            export_end_time = time.time()
+            total_elapsed_time = export_end_time - export_start_time
+            
             print("\nExport completed:")
+            print(f"- Total elapsed time: {total_elapsed_time:.2f} seconds")
             print(f"- Total frames processed: {processed_frames}")
             print(f"- Total person detections: {detection_count}")
             print(f"- Total face detections: {face_detection_count}")
             print(f"- Body images saved: {body_images_saved}")
             print(f"- AWS API calls: {self.aws_service.api_calls_count}")
+            print(f"- Processing speed: {processed_frames/total_elapsed_time:.2f} fps")
             
             # Clean up
             self.video_writer.release()
@@ -272,13 +281,18 @@ class ExportMixin:
             
             self.status_message.emit(
                 f"Video exported successfully to: {output_path}\n"
+                f"Total elapsed time: {total_elapsed_time:.2f} seconds\n"
                 f"Total person detections: {detection_count}\n"
                 f"Total face detections: {face_detection_count}\n"
-                f"Body images saved: {body_images_saved}"
+                f"Body images saved: {body_images_saved}\n"
+                f"Processing speed: {processed_frames/total_elapsed_time:.2f} fps"
             )
             return True
             
         except Exception as e:
+            export_end_time = time.time()
+            total_elapsed_time = export_end_time - export_start_time
+            
             if self.video_writer:
                 self.video_writer.release()
                 self.video_writer = None
@@ -288,6 +302,7 @@ class ExportMixin:
             self.aws_service.set_export_mode(False)
             # Restore video capture position on error
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
-            self.status_message.emit(f"Error exporting video: {str(e)}")
+            self.status_message.emit(f"Error exporting video: {str(e)} (Elapsed time: {total_elapsed_time:.2f}s)")
             print(f"Export error details: {str(e)}")
+            print(f"Export failed after {total_elapsed_time:.2f} seconds")
             return False
