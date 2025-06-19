@@ -43,12 +43,12 @@ class DrawingMixin:
                 if scaled_w <= 0 or scaled_h <= 0:
                     continue
                 
-                # Calculate confidence-based color intensity
+                # Calculate confidence-based color intensity - using standardized colors
                 is_moving = person.get('is_moving', False)
                 if is_moving:
-                    pen_color = QColor(255, 165, 0)  # Orange for moving
+                    pen_color = QColor(255, 165, 0)  # Orange for moving (RGB format)
                 else:
-                    pen_color = QColor(0, 0, 255)    # Blue for idle
+                    pen_color = QColor(0, 0, 255)    # Blue for idle (RGB format)
                 painter.setPen(QPen(pen_color, 2))
                 painter.drawRect(scaled_x, scaled_y, scaled_w, scaled_h)
                 
@@ -113,7 +113,7 @@ class DrawingMixin:
         return True
     
     def _is_valid_bbox(self, x, y, w, h):
-        """Validate bounding box coordinates"""
+        """Validate bounding box coordinates - unified with tracking validation"""
         # Check for negative or zero dimensions
         if w <= 0 or h <= 0:
             return False
@@ -122,8 +122,13 @@ class DrawingMixin:
         if w < 10 or h < 20 or w > 1000 or h > 1000:
             return False
         
-        # Check for reasonable position
-        if x < -100 or y < -100 or x > 2000 or y > 2000:
+        # Check for reasonable position (allow negative for partial off-screen objects)
+        if x < -200 or y < -200 or x > 3000 or y > 3000:
+            return False
+        
+        # Check for reasonable aspect ratio
+        aspect_ratio = w / h if h > 0 else 0
+        if aspect_ratio < 0.1 or aspect_ratio > 10.0:
             return False
         
         return True

@@ -61,7 +61,6 @@ class PersonTracker:
         self.min_consecutive_movement_frames = 1  # Single frame movement detection
         self.jitter_threshold = 0.8  # Lower to detect smaller movements
         self.confidence_movement_factor = 0.5  # More lenient confidence requirements
-        self.frame_skip = 1  # Process every frame for CCTV
         
         # NEW: CCTV-specific movement detection
         self.movement_scale_factor = 1.5  # Scale movement based on person size
@@ -71,12 +70,13 @@ class PersonTracker:
         # Movement state tracking
         self.movement_state = {}
         
-        # Visualization settings
+        # Visualization settings - standardized color scheme
         self.label_colors = {
-            'moving': (255, 0, 255),  # Purple
-            'idle': (255, 165, 0),    # Orange
-            'person': (255, 0, 0),    # Blue
-            'store': (0, 255, 0)      # Green
+            'moving': (0, 165, 255),    # Orange for moving (BGR format)
+            'idle': (255, 0, 0),        # Blue for idle (BGR format)
+            'person': (255, 0, 0),      # Blue for person (BGR format)
+            'store': (0, 255, 0),       # Green for store (BGR format)
+            'face': (0, 0, 255)         # Red for face detection (BGR format)
         }
         
         # Debugging flags
@@ -85,11 +85,27 @@ class PersonTracker:
 
     def set_export_mode(self, enabled):
         """Enable/disable export mode for performance optimization"""
-        self.is_export_mode = enabled
-        if enabled:
+        if enabled and not self.is_export_mode:
+            # Entering export mode - save current state
+            self.saved_tracking_state = self.save_tracking_state()
+            self.is_export_mode = enabled
+            # Reset frame counter for clean export state
+            self.frame_counter = 0
             print("PersonTracker: Export mode enabled - using aggressive frame skipping")
+        elif not enabled and self.is_export_mode:
+            # Exiting export mode - restore previous state
+            self.is_export_mode = enabled
+            if hasattr(self, 'saved_tracking_state'):
+                self.restore_tracking_state(self.saved_tracking_state)
+                self.saved_tracking_state = None
+            print("PersonTracker: Export mode disabled - restored previous tracking state")
         else:
-            print("PersonTracker: Export mode disabled - using normal frame processing")
+            # No state change needed
+            self.is_export_mode = enabled
+            if enabled:
+                print("PersonTracker: Export mode already enabled")
+            else:
+                print("PersonTracker: Export mode already disabled")
 
     def detect_camera_jitter(self, movement_history):
         """Detect if movements are likely due to camera jitter/noise"""
@@ -193,12 +209,8 @@ class PersonTracker:
         return stability
     
     def update_movement_status(self, person_id, person, old_bbox, new_bbox, velocity):
-        """CCTV-optimized movement detection with size-based adjustments"""
-        # Calculate center points
-        curr_center = ((new_bbox[0] + new_bbox[2]) // 2, (new_bbox[1] + new_bbox[3]) // 2)
-        prev_center = ((old_bbox[0] + old_bbox[2]) // 2, (old_bbox[1] + old_bbox[3]) // 2)
-        
-        # Calculate immediate movement metrics with CCTV adjustments
+        """Simplified movement detection with consolidated thresholds"""
+        # Calculate movement distance
         movement_distance = self.calculate_movement_distance(old_bbox, new_bbox)
         velocity_magnitude = self.calculate_velocity_magnitude(velocity)
         
@@ -207,96 +219,24 @@ class PersonTracker:
             self.movement_state[person_id] = {
                 'moving_frames': 0,
                 'idle_frames': 0,
-                'last_movement_time': 0,
-                'movement_history': [],
-                'position_history': [],
                 'last_state': 'idle',
-                'state_persistence': self.idle_persistence,
-                'consecutive_movements': 0,
-                'total_movement_accumulator': 0.0,
-                'frames_since_significant_movement': 0,
-                'movement_trend': 'stable',
-                'last_movement_distance': 0.0  # NEW: Track last movement
+                'state_persistence': self.idle_persistence
             }
         
         state = self.movement_state[person_id]
         
-        # Update position and movement history
-        state['position_history'].append(curr_center)
-        if len(state['position_history']) > self.position_history_size:
-            state['position_history'].pop(0)
-        
-        state['movement_history'].append(movement_distance)
-        if len(state['movement_history']) > self.movement_history_size:
-            state['movement_history'].pop(0)
-        
-        # CCTV-specific movement detection
+        # Simplified movement detection - only use distance and velocity
         person_height = new_bbox[3]
         is_valid_size = self.min_person_height <= person_height <= self.max_person_height
         
-        # Calculate movement metrics
-        recent_movements = state['movement_history']
-        avg_movement = sum(recent_movements) / len(recent_movements) if recent_movements else 0
-        max_recent_movement = max(recent_movements) if recent_movements else 0
+        # Determine if currently moving based on simple criteria
+        is_currently_moving = (
+            is_valid_size and
+            movement_distance > self.min_movement_threshold and
+            velocity_magnitude > self.velocity_threshold
+        )
         
-        # Calculate total displacement
-        total_displacement = 0
-        if len(state['position_history']) > 1:
-            start_pos = state['position_history'][0]
-            end_pos = state['position_history'][-1]
-            total_displacement = np.sqrt((end_pos[0] - start_pos[0])**2 + (end_pos[1] - start_pos[1])**2)
-        
-        # CCTV-specific movement indicators
-        movement_indicators = 0
-        movement_reasons = []
-        
-        # 1. Immediate movement (adjusted for CCTV)
-        if movement_distance > self.min_movement_threshold and is_valid_size:
-            movement_indicators += 1
-            movement_reasons.append(f"dist={movement_distance:.1f}")
-        
-        # 2. Velocity-based movement (adjusted for CCTV)
-        if velocity_magnitude > self.velocity_threshold and is_valid_size:
-            movement_indicators += 1
-            movement_reasons.append(f"vel={velocity_magnitude:.1f}")
-        
-        # 3. Average movement (adjusted for CCTV)
-        if avg_movement > self.motion_threshold and is_valid_size:
-            movement_indicators += 1
-            movement_reasons.append(f"avg={avg_movement:.1f}")
-        
-        # 4. Total displacement (adjusted for CCTV)
-        if total_displacement > self.motion_threshold and is_valid_size:
-            movement_indicators += 1
-            movement_reasons.append(f"disp={total_displacement:.1f}")
-        
-        # CCTV-optimized movement detection
-        significant_movement = (movement_indicators >= 1 and  # Only need one indicator for CCTV
-                            movement_distance > self.jitter_threshold and
-                            is_valid_size)  # Removed stability check for CCTV
-        
-        # Update movement state
-        if significant_movement:
-            state['consecutive_movements'] += 1
-            state['frames_since_significant_movement'] = 0
-            state['last_movement_distance'] = movement_distance
-        else:
-            state['consecutive_movements'] = max(0, state['consecutive_movements'] - 1)
-            state['frames_since_significant_movement'] += 1
-        
-        # CCTV-optimized state decision
-        is_currently_moving = (state['consecutive_movements'] >= self.min_consecutive_movement_frames and
-                            significant_movement)
-        
-        # Update movement trend
-        if is_currently_moving:
-            state['movement_trend'] = 'increasing'
-        elif state['frames_since_significant_movement'] > 3:  # Reduced for CCTV
-            state['movement_trend'] = 'decreasing'
-        else:
-            state['movement_trend'] = 'stable'
-        
-        # Update state with CCTV-optimized persistence
+        # Update state with simplified persistence logic
         current_state = state['last_state']
         
         if is_currently_moving:
@@ -326,23 +266,9 @@ class PersonTracker:
         person['is_moving'] = state['last_state'] == 'moving'
         person['is_idle'] = state['last_state'] == 'idle'
         person['movement_state'] = state['last_state']
-        person['avg_movement'] = avg_movement
         person['last_movement_distance'] = movement_distance
         person['velocity_magnitude'] = velocity_magnitude
-        person['movement_indicators'] = movement_indicators
-        person['person_height'] = person_height  # NEW: Store person height for debugging
-        
-        # Enhanced debug information for CCTV
-        # if self.debug_movement:
-        #     reasons_str = ", ".join(movement_reasons) if movement_reasons else "no movement"
-        #     print(f"Person {person_id}: "
-        #         f"Dist={movement_distance:.1f}, "
-        #         f"Vel={velocity_magnitude:.1f}, "
-        #         f"Avg={avg_movement:.1f}, "
-        #         f"Height={person_height}, "
-        #         f"Indicators={movement_indicators}, "
-        #         f"State={person['movement_state']}, "
-        #         f"Reasons=[{reasons_str}]")
+        person['person_height'] = person_height
     
     def is_person_in_store(self, person_bbox, store_polygon):
         """Check if a person is inside a store using polygon intersection"""
@@ -384,6 +310,7 @@ class PersonTracker:
             self.track_history.pop(person_id, None)
             self.face_detection_history.pop(person_id, None)
             self.last_store.pop(person_id, None)
+            self.movement_state.pop(person_id, None)  # Clean up movement state to prevent memory leaks
     
     def find_best_match(self, detection, unmatched_tracks):
         """IMPROVED: Enhanced matching with movement prediction and size consistency"""
@@ -486,22 +413,98 @@ class PersonTracker:
         person['current_store'] = current_store
         self.last_store[person_id] = current_store
     
+    def validate_detection(self, detection):
+        """Validate detection data before creating tracks"""
+        if not isinstance(detection, dict):
+            return False
+        
+        # Check required fields
+        if 'bbox' not in detection or 'confidence' not in detection:
+            return False
+        
+        # Validate bbox format and values
+        bbox = detection['bbox']
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            return False
+        
+        x, y, w, h = bbox
+        if not all(isinstance(v, (int, float)) for v in bbox):
+            return False
+        
+        # Validate bbox dimensions
+        if w <= 0 or h <= 0:
+            return False
+        
+        # Validate confidence
+        confidence = detection['confidence']
+        if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
+            return False
+        
+        return True
+
+    def create_new_track(self, detection, frame_number, current_time, stores):
+        """Create a new track with validation"""
+        if not self.validate_detection(detection):
+            if self.debug_mode:
+                print(f"Invalid detection data, skipping track creation: {detection}")
+            return None
+        
+        person_id = self.next_id
+        self.next_id += 1
+        
+        # Initialize new track with validated data
+        self.tracked_people[person_id] = {
+            'bbox': detection['bbox'],
+            'confidence': detection['confidence'],
+            'last_seen': frame_number,
+            'current_store': None,
+            'history': [],
+            'timestamp': detection.get('timestamp', current_time.timestamp()),
+            'is_moving': False,  # New tracks start as not moving
+            'last_movement_distance': 0.0,
+            'velocity_magnitude': 0.0
+        }
+        
+        # Initialize tracking data
+        self.last_positions[person_id] = {
+            'velocity': (0, 0),
+            'last_update': frame_number
+        }
+
+        self.track_history[person_id] = [detection['bbox']]
+        self.face_detection_history[person_id] = []
+        self.last_store[person_id] = None
+        
+        # Update store status for new track
+        self.update_store_status(person_id, self.tracked_people[person_id], stores, current_time, frame_number)
+        
+        if self.debug_mode:
+            print(f"Created new track {person_id} with bbox {detection['bbox']}")
+        
+        return person_id
+
     def update(self, detected_people, stores, frame_number, face_detections=None):
         """Update tracked people with new detections"""
         self.frame_counter = frame_number
         current_time = datetime.now()
         
-        # Update location from mapping if available
-        # The location is at the root level of the mapping, not inside stores
+        # Standardize store data structure handling
         if isinstance(stores, dict):
-            # Try to get location from root level
-            if "location" in stores:
-                self.location = stores["location"]
-            # If not found at root, try to get from first store (as fallback)
-            elif stores.get("stores") and isinstance(stores["stores"], dict):
-                first_store = next(iter(stores["stores"].values()), None)
-                if first_store and "location" in first_store:
-                    self.location = first_store["location"]
+            # Handle both flat dict and nested dict structures
+            if "stores" in stores and isinstance(stores["stores"], dict):
+                # Nested structure: stores = {"stores": {...}, "location": "..."}
+                actual_stores = stores["stores"]
+                self.location = stores.get("location", "Unknown")
+            else:
+                # Flat structure: stores = {"store1": {...}, "store2": {...}}
+                actual_stores = stores
+                # Try to get location from first store or use default
+                first_store = next(iter(actual_stores.values()), None) if actual_stores else None
+                self.location = first_store.get("location", "Unknown") if first_store else "Unknown"
+        else:
+            # Fallback for invalid store data
+            actual_stores = {}
+            self.location = "Unknown"
         
         # Filter detections by confidence
         detected_people = [p for p in detected_people if p.get('confidence', 0) >= self.min_confidence]
@@ -575,8 +578,8 @@ class PersonTracker:
                 if len(self.track_history[best_track_id]) > self.max_history:
                     self.track_history[best_track_id].pop(0)
                 
-                # Update store status
-                self.update_store_status(best_track_id, person, stores, current_time, frame_number)
+                # Update store status using standardized stores
+                self.update_store_status(best_track_id, person, actual_stores, current_time, frame_number)
                 
                 # Mark as matched
                 matched_detections.add(i)
@@ -585,34 +588,8 @@ class PersonTracker:
         # Create new tracks for unmatched detections
         for i, detection in enumerate(detected_people):
             if i not in matched_detections:
-                person_id = self.next_id
-                self.next_id += 1
-                
-                # Initialize new track
-                self.tracked_people[person_id] = {
-                    'bbox': detection['bbox'],
-                    'confidence': detection['confidence'],
-                    'last_seen': frame_number,
-                    'current_store': None,
-                    'history': [],
-                    'timestamp': detection.get('timestamp', current_time.timestamp()),
-                    'is_moving': False,  # New tracks start as not moving
-                    'last_movement_distance': 0.0,
-                    'velocity_magnitude': 0.0
-                }
-                
-                # Initialize tracking data
-                self.last_positions[person_id] = {
-                    'velocity': (0, 0),
-                    'last_update': frame_number
-                }
-
-                self.track_history[person_id] = [detection['bbox']]
-                self.face_detection_history[person_id] = []
-                self.last_store[person_id] = None
-                
-                # Update store status for new track
-                self.update_store_status(person_id, self.tracked_people[person_id], stores, current_time, frame_number)
+                person_id = self.create_new_track(detection, frame_number, current_time, actual_stores)
+                # Track creation is handled inside create_new_track method
         
         # Update last_seen for all remaining unmatched tracks (they weren't updated this frame)
         for person_id in unmatched_tracks:
@@ -809,3 +786,47 @@ class PersonTracker:
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         
         return frame_with_detections
+
+    def save_tracking_state(self):
+        """Save current tracking state for persistence"""
+        return {
+            'tracked_people': self.tracked_people.copy(),
+            'last_positions': self.last_positions.copy(),
+            'track_history': {k: v.copy() for k, v in self.track_history.items()},
+            'last_store': self.last_store.copy(),
+            'movement_state': {k: v.copy() for k, v in self.movement_state.items()},
+            'next_id': self.next_id,
+            'frame_counter': self.frame_counter
+        }
+    
+    def restore_tracking_state(self, state):
+        """Restore tracking state from saved data"""
+        if state is None:
+            return
+        
+        try:
+            self.tracked_people = state.get('tracked_people', {})
+            self.last_positions = state.get('last_positions', {})
+            self.track_history = state.get('track_history', {})
+            self.last_store = state.get('last_store', {})
+            self.movement_state = state.get('movement_state', {})
+            self.next_id = state.get('next_id', 1)
+            self.frame_counter = state.get('frame_counter', 0)
+            
+            if self.debug_mode:
+                print(f"Restored tracking state with {len(self.tracked_people)} tracks")
+        except Exception as e:
+            print(f"Error restoring tracking state: {str(e)}")
+            # Reset to clean state if restoration fails
+            self._reset_tracking_state()
+    
+    def _reset_tracking_state(self):
+        """Reset tracking state to clean initial state"""
+        self.tracked_people = {}
+        self.last_positions = {}
+        self.track_history = {}
+        self.face_detection_history = {}
+        self.last_store = {}
+        self.movement_state = {}
+        self.next_id = 1
+        self.frame_counter = 0

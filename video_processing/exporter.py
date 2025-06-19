@@ -37,18 +37,21 @@ class ExportMixin:
             for store_id, store in self.stores.items():
                 if "polygon" not in store or len(store["polygon"]) < 3:
                     print(f"Warning: Store {store_id} has invalid polygon")
+                    self._cleanup_export_state()
                     return False
                 
                 # Calculate video polygon using perspective transformation
                 perspective_matrix = self.store_perspective_matrices.get(store_id)
                 if perspective_matrix is None:
                     print(f"Warning: Store {store_id} has no perspective matrix")
+                    self._cleanup_export_state()
                     return False
                 
                 try:
                     points = np.array(store["polygon"], dtype=np.float32).reshape(-1, 1, 2)
                     if perspective_matrix.shape != (3, 3):
                         print(f"Warning: Invalid perspective matrix shape for store {store_id}")
+                        self._cleanup_export_state()
                         return False
                     
                     transformed = cv2.perspectiveTransform(points, perspective_matrix)
@@ -56,6 +59,7 @@ class ExportMixin:
                     print(f"Calculated video polygon for store {store_id}: {store['video_polygon']}")
                 except Exception as e:
                     print(f"Error calculating video polygon for store {store_id}: {str(e)}")
+                    self._cleanup_export_state()
                     return False
             
             # Get video properties
@@ -316,18 +320,26 @@ class ExportMixin:
             export_end_time = time.time()
             total_elapsed_time = export_end_time - export_start_time
             
-            if self.video_writer:
-                self.video_writer.release()
-                self.video_writer = None
-            self.is_exporting = False
-            self.export_progress = 0
-            # Ensure AWS is disabled
-            self.aws_service.set_export_mode(False)
-            # Disable export mode on person tracker
-            self.person_tracker.set_export_mode(False)
+            # Use centralized cleanup
+            self._cleanup_export_state()
+            
             # Restore video capture position on error
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, current_position)
             self.status_message.emit(f"Error exporting video: {str(e)} (Elapsed time: {total_elapsed_time:.2f}s)")
             print(f"Export error details: {str(e)}")
             print(f"Export failed after {total_elapsed_time:.2f} seconds")
             return False
+
+    def _cleanup_export_state(self):
+        """Clean up export state and disable export modes"""
+        self.is_exporting = False
+        if self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+        self.export_progress = 0
+        
+        # Disable export modes
+        self.aws_service.set_export_mode(False)
+        self.person_tracker.set_export_mode(False)
+        
+        print("Export state cleaned up")
